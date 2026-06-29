@@ -1,0 +1,1430 @@
+"use client";
+import { useEffect, useState, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
+
+function money(n) {
+  return "$" + (Number(n) || 0).toFixed(2);
+}
+
+function todayStr() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+export default function Dashboard() {
+  const router = useRouter();
+  const [user, setUser] = useState(undefined);
+  const [tab, setTab] = useState("");
+  const [showPasswordPanel, setShowPasswordPanel] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => r.json())
+      .then((d) => {
+        if (!d.user) {
+          router.replace("/login");
+        } else {
+          setUser(d.user);
+          if (d.user.role === "EMPLOYEE" || d.user.role === "GARAGE_MANAGER") setTab("checkin");
+          else if (d.user.role === "SUPER_ADMIN") setTab("garages");
+          else setTab("revenue");
+        }
+      });
+  }, [router]);
+
+  async function logout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    router.replace("/login");
+  }
+
+  if (user === undefined) return null;
+  if (!user) return null;
+
+  const isOperational = user.role === "EMPLOYEE" || user.role === "GARAGE_MANAGER";
+  const isSuperAdmin = user.role === "SUPER_ADMIN";
+  const isAdmin = user.role === "ADMIN";
+
+  return (
+    <div className="shell">
+      <header className="topbar">
+        <div className="brand">
+          <img src="/logo.png" alt="" className="logo" />
+          <span className="mark">Integral</span>
+          <span className="sub">{user.role.replace("_", " ")}</span>
+        </div>
+        <button
+          className="btn-ghost"
+          style={{ width: "auto", padding: "8px 14px", borderRadius: 20, fontSize: 11 }}
+          onClick={logout}
+        >
+          Sign out
+        </button>
+      </header>
+      <main>
+        {isOperational && (
+          <div className="tabs">
+            <button className={tab === "checkin" ? "active" : ""} onClick={() => setTab("checkin")}>
+              Check-In
+            </button>
+            <button className={tab === "checkout" ? "active" : ""} onClick={() => setTab("checkout")}>
+              Check-Out
+            </button>
+            <button className={tab === "active" ? "active" : ""} onClick={() => setTab("active")}>
+              Active
+            </button>
+            <button className={tab === "reports" ? "active" : ""} onClick={() => setTab("reports")}>
+              My Reports
+            </button>
+            {user.role === "GARAGE_MANAGER" && (
+              <button className={tab === "employees" ? "active" : ""} onClick={() => setTab("employees")}>
+                Employees
+              </button>
+            )}
+            {user.role === "GARAGE_MANAGER" && (
+              <button className={tab === "garage-reports" ? "active" : ""} onClick={() => setTab("garage-reports")}>
+                Garage Reports
+              </button>
+            )}
+          </div>
+        )}
+
+        {isAdmin && (
+          <div className="tabs">
+            <button className={tab === "revenue" ? "active" : ""} onClick={() => setTab("revenue")}>
+              Revenue
+            </button>
+            <button className={tab === "garages" ? "active" : ""} onClick={() => setTab("garages")}>
+              Garages
+            </button>
+            <button className={tab === "users" ? "active" : ""} onClick={() => setTab("users")}>
+              Users
+            </button>
+          </div>
+        )}
+
+        {isSuperAdmin && (
+          <div className="tabs">
+            <button className={tab === "garages" ? "active" : ""} onClick={() => setTab("garages")}>
+              Garages
+            </button>
+            <button className={tab === "users" ? "active" : ""} onClick={() => setTab("users")}>
+              Admins
+            </button>
+          </div>
+        )}
+
+        {tab === "checkin" && isOperational && <CheckInView />}
+        {tab === "checkout" && isOperational && <CheckOutView />}
+        {tab === "active" && isOperational && <ActiveTicketsView />}
+        {tab === "reports" && isOperational && (
+          <MyReportsView user={user} />
+        )}
+        {tab === "employees" && user.role === "GARAGE_MANAGER" && <UsersView currentUser={user} />}
+        {tab === "garage-reports" && user.role === "GARAGE_MANAGER" && <GarageReportsView user={user} />}
+        {tab === "revenue" && isAdmin && <RevenueDashboard user={user} />}
+        {tab === "garages" && (isAdmin || isSuperAdmin) && <GaragesView />}
+        {tab === "users" && (isAdmin || isSuperAdmin) && <UsersView currentUser={user} />}
+
+        {showPasswordPanel && <ChangePasswordPanel onClose={() => setShowPasswordPanel(false)} />}
+      </main>
+      <footer className="note">
+        Signed in as {user.name} ({user.username})
+        {" · "}
+        <button
+          onClick={() => setShowPasswordPanel((v) => !v)}
+          style={{
+            background: "none", border: "none", color: "var(--brass-light)", fontSize: 11,
+            cursor: "pointer", padding: 0, textDecoration: "underline",
+          }}
+        >
+          Change password
+        </button>
+      </footer>
+    </div>
+  );
+}
+
+// ---------------- CHANGE PASSWORD ----------------
+function ChangePasswordPanel({ onClose }) {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState(false);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError("");
+    if (newPassword !== confirmPassword) {
+      setError("New password and confirmation don't match.");
+      return;
+    }
+    const res = await fetch("/api/auth/change-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ currentPassword, newPassword }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setError(data.error);
+      return;
+    }
+    setSuccess(true);
+    setCurrentPassword("");
+    setNewPassword("");
+    setConfirmPassword("");
+  }
+
+  return (
+    <div className="card" style={{ marginTop: 20 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 14 }}>
+        <h1 className="title" style={{ marginBottom: 0, fontSize: 18 }}>Change password</h1>
+        <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--slate2)", cursor: "pointer" }}>
+          Close
+        </button>
+      </div>
+      {error && <div className="error-box">{error}</div>}
+      {success ? (
+        <p style={{ color: "var(--green)", fontSize: 14 }}>Password updated successfully.</p>
+      ) : (
+        <form onSubmit={handleSubmit}>
+          <div className="field">
+            <label>Current password</label>
+            <input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} required />
+          </div>
+          <div className="field">
+            <label>New password</label>
+            <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required minLength={6} />
+          </div>
+          <div className="field">
+            <label>Confirm new password</label>
+            <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required minLength={6} />
+          </div>
+          <button className="btn btn-primary" type="submit">Update password</button>
+        </form>
+      )}
+    </div>
+  );
+}
+
+// ---------------- SHIFT REPORT FORM (shared by Employee & Garage Manager) ----------------
+// ---------------- CHECK-IN ----------------
+function CheckInView() {
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [ticket, setTicket] = useState(null);
+
+  const [apartmentNumber, setApartmentNumber] = useState("");
+  const [vehicleMake, setVehicleMake] = useState("");
+  const [vehicleModel, setVehicleModel] = useState("");
+  const [vehicleColor, setVehicleColor] = useState("");
+  const [licensePlate, setLicensePlate] = useState("");
+  const [parkingLocation, setParkingLocation] = useState("");
+
+  const [scanning, setScanning] = useState(false);
+  const [scanError, setScanError] = useState("");
+  const [scanNotice, setScanNotice] = useState("");
+  const [vehiclePhotoUrl, setVehiclePhotoUrl] = useState(null);
+  const [photoPreview, setPhotoPreview] = useState(null);
+  const cameraInputRef = useRef(null);
+  const galleryInputRef = useRef(null);
+
+  function resizeImageFile(file, maxDimension = 1024, quality = 0.75) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          let { width, height } = img;
+          if (width > height && width > maxDimension) {
+            height = Math.round((height * maxDimension) / width);
+            width = maxDimension;
+          } else if (height > maxDimension) {
+            width = Math.round((width * maxDimension) / height);
+            height = maxDimension;
+          }
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL("image/jpeg", quality));
+        };
+        img.onerror = reject;
+        img.src = e.target.result;
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function handlePhotoSelect(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setScanError("");
+    setScanNotice("");
+    setScanning(true);
+    try {
+      const dataUrl = await resizeImageFile(file);
+      setPhotoPreview(dataUrl);
+
+      // Upload the photo so it can be attached to the printed receipt,
+      // regardless of whether AI scanning is set up or succeeds.
+      fetch("/api/tickets/upload-photo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageBase64: dataUrl }),
+      })
+        .then((r) => r.json().then((d) => ({ ok: r.ok, d })))
+        .then(({ ok, d }) => {
+          if (ok) setVehiclePhotoUrl(d.url);
+        })
+        .catch(() => {});
+
+      const res = await fetch("/api/vehicle-scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageBase64: dataUrl }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setScanError(data.error);
+        return;
+      }
+      if (data.make) setVehicleMake(data.make);
+      if (data.model) setVehicleModel(data.model);
+      if (data.color) setVehicleColor(data.color);
+      if (data.licensePlate) setLicensePlate(data.licensePlate);
+      setScanNotice("Filled in from photo — please double check before submitting.");
+    } catch (err) {
+      setScanError("Couldn't process that photo. Try again or enter details manually.");
+    } finally {
+      setScanning(false);
+    }
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError("");
+    setSaving(true);
+    const body = { apartmentNumber, vehicleMake, vehicleModel, vehicleColor, licensePlate, parkingLocation, photoUrl: vehiclePhotoUrl };
+    const res = await fetch("/api/tickets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    setSaving(false);
+    if (!res.ok) {
+      setError(data.error);
+      return;
+    }
+    setTicket(data);
+    setApartmentNumber(""); setVehicleMake(""); setVehicleModel("");
+    setVehicleColor(""); setLicensePlate(""); setParkingLocation("");
+    setScanNotice(""); setVehiclePhotoUrl(null); setPhotoPreview(null);
+  }
+
+  if (ticket) {
+    return (
+      <>
+        <div className="hero-line">Vehicle checked in</div>
+        <h1 className="title">Ticket #{ticket.ticketNumber}</h1>
+        <div className="card" style={{ textAlign: "center" }}>
+          <img src={ticket.qrDataUrl} alt="QR code" style={{ width: 220, height: 220, margin: "0 auto" }} />
+          <div style={{ fontFamily: "Oswald, sans-serif", fontSize: 28, color: "var(--brass-light)", marginTop: 12 }}>
+            #{ticket.ticketNumber}
+          </div>
+          <div style={{ fontSize: 12, color: "var(--slate2)", marginTop: 4 }}>
+            {new Date(ticket.checkInTime).toLocaleString()}
+          </div>
+        </div>
+        <button className="btn btn-primary" onClick={() => window.print()}>
+          Print 2 ticket copies
+        </button>
+        <button className="btn btn-ghost" onClick={() => setTicket(null)}>
+          Check in another vehicle
+        </button>
+
+        {/* Hidden except when printing — rendered twice for the two copies. */}
+        <div className="print-ticket">
+          {[0, 1].map((copy) => (
+            <div key={copy} style={{ marginBottom: copy === 0 ? "10mm" : 0 }}>
+              <div className="pt-center pt-big">{ticket.garage?.name || "Garage"}</div>
+              <div className="pt-center" style={{ fontSize: 13 }}>{copy === 0 ? "CUSTOMER COPY" : "GARAGE COPY"}</div>
+              <div className="pt-line"></div>
+              <div className="pt-center" style={{ fontSize: 32, fontWeight: 700 }}>#{ticket.ticketNumber}</div>
+              <div className="pt-center"><img src={ticket.qrDataUrl} alt="" style={{ width: "140px" }} /></div>
+              <div className="pt-line"></div>
+              <div className="pt-row"><span>Checked in</span><span>{new Date(ticket.checkInTime).toLocaleString()}</span></div>
+              {ticket.apartmentNumber && <div className="pt-row"><span>Unit</span><span>{ticket.apartmentNumber}</span></div>}
+              {ticket.licensePlate && <div className="pt-row"><span>Plate</span><span>{ticket.licensePlate}</span></div>}
+              {(ticket.vehicleMake || ticket.vehicleModel) && (
+                <div className="pt-row"><span>Vehicle</span><span>{[ticket.vehicleColor, ticket.vehicleMake, ticket.vehicleModel].filter(Boolean).join(" ")}</span></div>
+              )}
+              {ticket.parkingLocation && <div className="pt-row"><span>Location</span><span>{ticket.parkingLocation}</span></div>}
+              {ticket.photoUrl && (
+                <div className="pt-center" style={{ marginTop: "4mm" }}>
+                  <img src={ticket.photoUrl} alt="" style={{ width: "100%", maxHeight: "60mm", objectFit: "cover" }} />
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <div className="hero-line">New arrival</div>
+      <h1 className="title">Check In a Vehicle</h1>
+      {error && <div className="error-box">{error}</div>}
+
+      <div className="field">
+        <label>Scan vehicle photo (optional)</label>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            style={{ flex: 1, marginTop: 0 }}
+            onClick={() => cameraInputRef.current?.click()}
+            disabled={scanning}
+          >
+            📷 Take Photo
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            style={{ flex: 1, marginTop: 0 }}
+            onClick={() => galleryInputRef.current?.click()}
+            disabled={scanning}
+          >
+            🖼️ Choose Photo
+          </button>
+        </div>
+        <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" onChange={handlePhotoSelect} style={{ display: "none" }} />
+        <input ref={galleryInputRef} type="file" accept="image/*" onChange={handlePhotoSelect} style={{ display: "none" }} />
+        {scanning && <div className="field-hint">Analyzing photo...</div>}
+        {scanError && <div className="error-box" style={{ marginTop: 10 }}>{scanError}</div>}
+        {scanNotice && !scanError && (
+          <p style={{ color: "var(--green)", fontSize: 12, marginTop: 8 }}>{scanNotice}</p>
+        )}
+        {photoPreview && (
+          <img src={photoPreview} alt="Vehicle preview" style={{ marginTop: 10, maxWidth: "100%", borderRadius: 8, maxHeight: 160 }} />
+        )}
+      </div>
+
+      <form onSubmit={handleSubmit}>
+        <div className="field">
+          <label>Apartment / Unit number (optional)</label>
+          <input value={apartmentNumber} onChange={(e) => setApartmentNumber(e.target.value)} />
+        </div>
+        <div className="field">
+          <label>Vehicle make</label>
+          <input value={vehicleMake} onChange={(e) => setVehicleMake(e.target.value)} placeholder="e.g. Toyota" />
+        </div>
+        <div className="field">
+          <label>Vehicle model</label>
+          <input value={vehicleModel} onChange={(e) => setVehicleModel(e.target.value)} placeholder="e.g. Camry" />
+        </div>
+        <div className="field">
+          <label>Color</label>
+          <input value={vehicleColor} onChange={(e) => setVehicleColor(e.target.value)} />
+        </div>
+        <div className="field">
+          <label>License plate</label>
+          <input value={licensePlate} onChange={(e) => setLicensePlate(e.target.value)} />
+        </div>
+        <div className="field">
+          <label>Parking location (optional)</label>
+          <input value={parkingLocation} onChange={(e) => setParkingLocation(e.target.value)} placeholder="e.g. Level 2, Spot 14" />
+        </div>
+        <button className="btn btn-primary" type="submit" disabled={saving}>
+          {saving ? "Checking in..." : "Check in & generate ticket"}
+        </button>
+      </form>
+    </>
+  );
+}
+
+// ---------------- CHECK-OUT ----------------
+function CheckOutView() {
+  const [code, setCode] = useState("");
+  const [ticket, setTicket] = useState(null);
+  const [error, setError] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState("CASH");
+  const [paymentNote, setPaymentNote] = useState("");
+  const [completing, setCompleting] = useState(false);
+  const [completed, setCompleted] = useState(null);
+
+  async function lookup(e) {
+    e.preventDefault();
+    setError("");
+    setTicket(null);
+    if (!code.trim()) return;
+    const res = await fetch(`/api/tickets/lookup?code=${encodeURIComponent(code.trim())}`);
+    const data = await res.json();
+    if (!res.ok) {
+      setError(data.error);
+      setCode("");
+      return;
+    }
+    setTicket(data);
+  }
+
+  async function completeCheckout() {
+    setCompleting(true);
+    setError("");
+    const res = await fetch(`/api/tickets/${ticket.id}/checkout`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ paymentMethod, paymentNote }),
+    });
+    const data = await res.json();
+    setCompleting(false);
+    if (!res.ok) {
+      setError(data.error);
+      return;
+    }
+    setCompleted(data);
+    setTicket(null);
+    setCode("");
+  }
+
+  if (completed) {
+    return (
+      <>
+        <div className="hero-line">Checkout complete</div>
+        <h1 className="title">Ticket #{completed.ticketNumber}</h1>
+        <div className="card">
+          <div className="totals-grid">
+            <div className="totals-cell"><div className="label">Duration</div><div className="value" style={{ fontSize: 16 }}>{Math.floor(completed.durationMinutes / 60)}h {completed.durationMinutes % 60}m</div></div>
+            <div className="totals-cell"><div className="label">Amount charged</div><div className="value">{money(completed.feeAmount)}</div></div>
+          </div>
+          <p style={{ marginTop: 12, fontSize: 13, color: "var(--slate2)" }}>
+            Paid by {completed.paymentMethod === "CASH" ? "cash" : "credit card"}. This has been added to your shift report automatically.
+          </p>
+        </div>
+        <button className="btn btn-primary" onClick={() => setCompleted(null)}>
+          Check out another vehicle
+        </button>
+      </>
+    );
+  }
+
+  if (ticket) {
+    return (
+      <>
+        <div className="hero-line">Confirm checkout</div>
+        <h1 className="title">Ticket #{ticket.ticketNumber}</h1>
+        {error && <div className="error-box">{error}</div>}
+        <div className="card">
+          <div className="list-row" style={{ borderBottom: "none", padding: "4px 0" }}>
+            <span style={{ color: "var(--slate2)" }}>Checked in</span>
+            <span>{new Date(ticket.checkInTime).toLocaleString()}</span>
+          </div>
+          {ticket.apartmentNumber && (
+            <div className="list-row" style={{ borderBottom: "none", padding: "4px 0" }}>
+              <span style={{ color: "var(--slate2)" }}>Unit</span><span>{ticket.apartmentNumber}</span>
+            </div>
+          )}
+          {(ticket.vehicleMake || ticket.licensePlate) && (
+            <div className="list-row" style={{ borderBottom: "none", padding: "4px 0" }}>
+              <span style={{ color: "var(--slate2)" }}>Vehicle</span>
+              <span>{[ticket.vehicleColor, ticket.vehicleMake, ticket.vehicleModel].filter(Boolean).join(" ")}{ticket.licensePlate ? ` · ${ticket.licensePlate}` : ""}</span>
+            </div>
+          )}
+          <div className="totals-grid" style={{ marginTop: 12 }}>
+            <div className="totals-cell"><div className="label">Time parked</div><div className="value" style={{ fontSize: 16 }}>{Math.floor(ticket.previewMinutes / 60)}h {ticket.previewMinutes % 60}m</div></div>
+            <div className="totals-cell"><div className="label">Fee due</div><div className="value">{money(ticket.previewFee)}</div></div>
+          </div>
+        </div>
+
+        <div className="field">
+          <label>Payment method</label>
+          <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}>
+            <option value="CASH">Cash</option>
+            <option value="CREDIT_CARD">Credit card</option>
+          </select>
+        </div>
+        <div className="field">
+          <label>Payment note (optional)</label>
+          <input value={paymentNote} onChange={(e) => setPaymentNote(e.target.value)} placeholder="e.g. last 4 digits, terminal reference" />
+        </div>
+
+        <button className="btn btn-primary" disabled={completing} onClick={completeCheckout}>
+          {completing ? "Processing..." : `Complete checkout — ${money(ticket.previewFee)}`}
+        </button>
+        <button className="btn btn-ghost" onClick={() => setTicket(null)} disabled={completing}>
+          Cancel
+        </button>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <div className="hero-line">Customer departing</div>
+      <h1 className="title">Check Out a Vehicle</h1>
+      {error && <div className="error-box">{error}</div>}
+      <form onSubmit={lookup}>
+        <div className="field">
+          <label>Scan ticket QR code, or type ticket number</label>
+          <input
+            autoFocus
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            placeholder="Scan here or type e.g. 0042"
+          />
+          <div className="field-hint">A handheld scanner will fill this in automatically and submit — no need to press Enter yourself.</div>
+        </div>
+        <button className="btn btn-primary" type="submit">Look up ticket</button>
+      </form>
+    </>
+  );
+}
+
+// ---------------- ACTIVE TICKETS ----------------
+function ActiveTicketsView() {
+  const [tickets, setTickets] = useState([]);
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    const res = await fetch("/api/tickets?status=PARKED");
+    if (res.ok) setTickets(await res.json());
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function cancelTicket(id) {
+    setError("");
+    const res = await fetch(`/api/tickets/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "cancel" }),
+    });
+    const data = await res.json();
+    if (!res.ok) { setError(data.error); return; }
+    load();
+  }
+
+  return (
+    <>
+      <div className="queue-header">
+        <h1 className="title" style={{ marginBottom: 2 }}>Active Tickets</h1>
+        <span className="count-badge">{tickets.length} parked</span>
+      </div>
+      {error && <div className="error-box">{error}</div>}
+      {tickets.length === 0 ? (
+        <div className="empty-state">
+          <div className="big">No vehicles currently parked</div>
+          Checked-in vehicles will show up here until checkout.
+        </div>
+      ) : (
+        tickets.map((t) => (
+          <div key={t.id} className="list-row" style={{ display: "block" }}>
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <div>
+                <div style={{ fontWeight: 600 }}>#{t.ticketNumber}</div>
+                <div style={{ fontSize: 12, color: "var(--slate2)" }}>
+                  {[t.vehicleColor, t.vehicleMake, t.vehicleModel].filter(Boolean).join(" ") || "No vehicle details"}
+                  {t.licensePlate ? ` · ${t.licensePlate}` : ""}
+                </div>
+                <div style={{ fontSize: 11, color: "var(--slate2)" }}>
+                  Checked in {new Date(t.checkInTime).toLocaleString()}
+                </div>
+              </div>
+              <button
+                className="role-tag"
+                style={{ background: "none", cursor: "pointer", color: "var(--red)", height: "fit-content" }}
+                onClick={() => { if (window.confirm(`Cancel ticket #${t.ticketNumber}?`)) cancelTicket(t.id); }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ))
+      )}
+    </>
+  );
+}
+
+function ShiftReportForm({ existing, onSaved, onCancel }) {
+  const [shiftDate, setShiftDate] = useState(existing?.shiftDate || todayStr());
+  const [startTime, setStartTime] = useState(existing?.startTime || "");
+  const [endTime, setEndTime] = useState(existing?.endTime || "");
+  const [cashRevenue, setCashRevenue] = useState(existing?.cashRevenue ?? "");
+  const [creditCardRevenue, setCreditCardRevenue] = useState(existing?.creditCardRevenue ?? "");
+  const [otherRevenue, setOtherRevenue] = useState(existing?.otherRevenue ?? "");
+  const [otherDescription, setOtherDescription] = useState(existing?.otherDescription || "");
+  const [adjustments, setAdjustments] = useState(existing?.adjustments ?? "");
+  const [adjustmentsNote, setAdjustmentsNote] = useState(existing?.adjustmentsNote || "");
+  const [notes, setNotes] = useState(existing?.notes || "");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const cash = parseFloat(cashRevenue) || 0;
+  const credit = parseFloat(creditCardRevenue) || 0;
+  const other = parseFloat(otherRevenue) || 0;
+  const adj = parseFloat(adjustments) || 0;
+  const gross = cash + credit + other;
+  const net = gross - adj;
+
+  async function save(submit) {
+    setError("");
+    setSaving(true);
+    const body = {
+      shiftDate, startTime, endTime,
+      cashRevenue: cash, creditCardRevenue: credit, otherRevenue: other, otherDescription,
+      adjustments: adj, adjustmentsNote, notes, submit,
+    };
+    const url = existing ? `/api/shift-reports/${existing.id}` : "/api/shift-reports";
+    const method = existing ? "PATCH" : "POST";
+    const res = await fetch(url, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    setSaving(false);
+    if (!res.ok) {
+      setError(data.error);
+      return;
+    }
+    onSaved();
+  }
+
+  return (
+    <div className="card">
+      {error && <div className="error-box">{error}</div>}
+
+      <div className="field">
+        <label>Shift date</label>
+        <input type="date" value={shiftDate} onChange={(e) => setShiftDate(e.target.value)} required />
+      </div>
+      <div style={{ display: "flex", gap: 10 }}>
+        <div className="field" style={{ flex: 1 }}>
+          <label>Start time</label>
+          <input type="text" placeholder="e.g. 7:00 AM" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
+        </div>
+        <div className="field" style={{ flex: 1 }}>
+          <label>End time</label>
+          <input type="text" placeholder="e.g. 3:00 PM" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
+        </div>
+      </div>
+
+      <div className="field">
+        <label>Cash revenue</label>
+        <input type="number" step="0.01" min="0" value={cashRevenue} onChange={(e) => setCashRevenue(e.target.value)} placeholder="0.00" />
+      </div>
+      <div className="field">
+        <label>Credit card revenue</label>
+        <input type="number" step="0.01" min="0" value={creditCardRevenue} onChange={(e) => setCreditCardRevenue(e.target.value)} placeholder="0.00" />
+      </div>
+      <div className="field">
+        <label>Other revenue</label>
+        <input type="number" step="0.01" min="0" value={otherRevenue} onChange={(e) => setOtherRevenue(e.target.value)} placeholder="0.00" />
+      </div>
+      {other !== 0 && (
+        <div className="field">
+          <label>Other revenue — description</label>
+          <input type="text" value={otherDescription} onChange={(e) => setOtherDescription(e.target.value)} placeholder="What is this from?" />
+        </div>
+      )}
+
+      <div className="field">
+        <label>Adjustments / discrepancies (subtracted from gross)</label>
+        <input type="number" step="0.01" min="0" value={adjustments} onChange={(e) => setAdjustments(e.target.value)} placeholder="0.00" />
+        <div className="field-hint">Use this for refunds, cash drawer shortages, or any correction to the gross total.</div>
+      </div>
+      {adj !== 0 && (
+        <div className="field">
+          <label>Adjustment note</label>
+          <input type="text" value={adjustmentsNote} onChange={(e) => setAdjustmentsNote(e.target.value)} placeholder="Reason for the adjustment" />
+        </div>
+      )}
+
+      <div className="totals-grid">
+        <div className="totals-cell">
+          <div className="label">Gross total</div>
+          <div className="value">{money(gross)}</div>
+        </div>
+        <div className="totals-cell">
+          <div className="label">Net total</div>
+          <div className="value">{money(net)}</div>
+        </div>
+      </div>
+
+      <div className="field" style={{ marginTop: 16 }}>
+        <label>Notes (optional)</label>
+        <textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} />
+      </div>
+
+      <button className="btn btn-ghost" disabled={saving} onClick={() => save(false)}>
+        Save as draft
+      </button>
+      <button
+        className="btn btn-primary"
+        style={{ marginTop: 10 }}
+        disabled={saving}
+        onClick={() => {
+          if (window.confirm("Submit this shift report? Once submitted, it will be locked and can no longer be edited.")) {
+            save(true);
+          }
+        }}
+      >
+        Submit shift report
+      </button>
+      {onCancel && (
+        <button className="btn btn-ghost" type="button" onClick={onCancel} disabled={saving}>
+          Cancel
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ---------------- REPORT SUMMARY ROW ----------------
+function TicketTransactionsList({ tickets }) {
+  if (!tickets || tickets.length === 0) return null;
+  return (
+    <div style={{ marginTop: 14 }}>
+      <div style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--brass-light)", marginBottom: 8 }}>
+        Ticket Transactions ({tickets.length})
+      </div>
+      {tickets.map((t) => (
+        <div key={t.id} className="list-row" style={{ padding: "8px 0" }}>
+          <span>#{t.ticketNumber}{t.apartmentNumber ? ` · Unit ${t.apartmentNumber}` : ""}</span>
+          <span style={{ color: "var(--brass-light)" }}>{money(t.feeAmount)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ReportRow({ r, showEmployee, onClick }) {
+  return (
+    <div className="list-row" onClick={onClick} style={{ cursor: onClick ? "pointer" : "default", display: "block" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <div style={{ fontWeight: 600 }}>{r.shiftDate}{r.startTime ? ` · ${r.startTime}–${r.endTime || "?"}` : ""}</div>
+          <div style={{ fontSize: 12, color: "var(--slate2)" }}>
+            {r.garage?.name}
+            {showEmployee && r.employee ? ` · ${r.employee.name}` : ""}
+          </div>
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <div style={{ fontFamily: "Oswald, sans-serif", color: "var(--brass-light)", fontSize: 16 }}>
+            {money(r.netTotal)}
+          </div>
+          <span className={`status-tag status-${r.status}`}>{r.status}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------- MY REPORTS (Employee / Garage Manager's own) ----------------
+function MyReportsView({ user }) {
+  const [reports, setReports] = useState([]);
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [viewing, setViewing] = useState(null);
+
+  const load = useCallback(async () => {
+    const res = await fetch("/api/shift-reports");
+    if (res.ok) setReports(await res.json());
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const hasOpenDraft = reports.some((r) => r.status === "DRAFT");
+
+  if (viewing) {
+    return (
+      <>
+        <div className="hero-line">Shift report</div>
+        <h1 className="title">{viewing.shiftDate}</h1>
+        <div className="card">
+          <div className="totals-grid">
+            <div className="totals-cell"><div className="label">Cash</div><div className="value">{money(viewing.cashRevenue)}</div></div>
+            <div className="totals-cell"><div className="label">Credit card</div><div className="value">{money(viewing.creditCardRevenue)}</div></div>
+            <div className="totals-cell"><div className="label">Other</div><div className="value">{money(viewing.otherRevenue)}</div></div>
+            <div className="totals-cell"><div className="label">Adjustments</div><div className="value">{money(viewing.adjustments)}</div></div>
+            <div className="totals-cell"><div className="label">Gross total</div><div className="value">{money(viewing.grossTotal)}</div></div>
+            <div className="totals-cell"><div className="label">Net total</div><div className="value">{money(viewing.netTotal)}</div></div>
+          </div>
+          {viewing.notes && (
+            <p style={{ marginTop: 14, fontSize: 13, color: "var(--slate2)" }}>Notes: {viewing.notes}</p>
+          )}
+          <TicketTransactionsList tickets={viewing.tickets} />
+          <p style={{ marginTop: 10, fontSize: 12, color: "var(--slate2)" }}>
+            Status: <span className={`status-tag status-${viewing.status}`}>{viewing.status}</span>
+            {viewing.submittedAt ? ` · Submitted ${new Date(viewing.submittedAt).toLocaleString()}` : ""}
+          </p>
+        </div>
+        <button className="btn btn-ghost" onClick={() => setViewing(null)}>Back</button>
+      </>
+    );
+  }
+
+  if (showForm || editing) {
+    return (
+      <>
+        <div className="hero-line">{editing ? "Edit draft" : "New shift report"}</div>
+        <h1 className="title">Shift Report</h1>
+        <ShiftReportForm
+          existing={editing}
+          onSaved={() => { setShowForm(false); setEditing(null); load(); }}
+          onCancel={() => { setShowForm(false); setEditing(null); }}
+        />
+      </>
+    );
+  }
+
+  return (
+    <>
+      <div className="queue-header">
+        <h1 className="title" style={{ marginBottom: 2 }}>My Shift Reports</h1>
+        <span className="count-badge">{reports.length} total</span>
+      </div>
+
+      {!hasOpenDraft && (
+        <button className="btn btn-primary" onClick={() => setShowForm(true)} style={{ marginBottom: 18 }}>
+          + New shift report
+        </button>
+      )}
+
+      {reports.length === 0 ? (
+        <div className="empty-state">
+          <div className="big">No reports yet</div>
+          Start your first shift report above.
+        </div>
+      ) : (
+        reports.map((r) => (
+          <div key={r.id}>
+            <ReportRow r={r} onClick={() => (r.status === "DRAFT" ? setEditing(r) : setViewing(r))} />
+            {r.status === "DRAFT" && (
+              <p style={{ fontSize: 11, color: "var(--brass-light)", marginTop: -8, marginBottom: 10 }}>
+                Draft — tap to continue editing
+              </p>
+            )}
+          </div>
+        ))
+      )}
+    </>
+  );
+}
+
+// ---------------- GARAGE REPORTS (Garage Manager viewing their whole garage) ----------------
+function GarageReportsView({ user }) {
+  const [reports, setReports] = useState([]);
+  const [viewing, setViewing] = useState(null);
+
+  const load = useCallback(async () => {
+    const res = await fetch("/api/shift-reports");
+    if (res.ok) setReports(await res.json());
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  if (viewing) {
+    return (
+      <>
+        <h1 className="title">{viewing.shiftDate} — {viewing.employee?.name}</h1>
+        <div className="card">
+          <div className="totals-grid">
+            <div className="totals-cell"><div className="label">Cash</div><div className="value">{money(viewing.cashRevenue)}</div></div>
+            <div className="totals-cell"><div className="label">Credit card</div><div className="value">{money(viewing.creditCardRevenue)}</div></div>
+            <div className="totals-cell"><div className="label">Other</div><div className="value">{money(viewing.otherRevenue)}</div></div>
+            <div className="totals-cell"><div className="label">Adjustments</div><div className="value">{money(viewing.adjustments)}</div></div>
+            <div className="totals-cell"><div className="label">Gross total</div><div className="value">{money(viewing.grossTotal)}</div></div>
+            <div className="totals-cell"><div className="label">Net total</div><div className="value">{money(viewing.netTotal)}</div></div>
+          </div>
+          <TicketTransactionsList tickets={viewing.tickets} />
+        </div>
+        <button className="btn btn-ghost" onClick={() => setViewing(null)}>Back</button>
+      </>
+    );
+  }
+
+  const totalNet = reports.reduce((sum, r) => sum + r.netTotal, 0);
+
+  return (
+    <>
+      <div className="queue-header">
+        <h1 className="title" style={{ marginBottom: 2 }}>Garage Reports</h1>
+        <span className="count-badge">{money(totalNet)} net</span>
+      </div>
+      {reports.length === 0 ? (
+        <div className="empty-state">
+          <div className="big">No reports yet</div>
+          Reports submitted by your team will show up here.
+        </div>
+      ) : (
+        reports.map((r) => <ReportRow key={r.id} r={r} showEmployee onClick={() => setViewing(r)} />)
+      )}
+    </>
+  );
+}
+
+// ---------------- REVENUE DASHBOARD (Super Admin / Admin) ----------------
+function RevenueDashboard({ user }) {
+  const [reports, setReports] = useState([]);
+  const [garages, setGarages] = useState([]);
+  const [employees, setEmployees] = useState([]);
+  const [garageFilter, setGarageFilter] = useState("");
+  const [employeeFilter, setEmployeeFilter] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [viewing, setViewing] = useState(null);
+
+  const loadFilters = useCallback(async () => {
+    const [gRes, uRes] = await Promise.all([fetch("/api/garages"), fetch("/api/users")]);
+    if (gRes.ok) setGarages(await gRes.json());
+    if (uRes.ok) setEmployees((await uRes.json()).filter((u) => u.role === "EMPLOYEE" || u.role === "GARAGE_MANAGER"));
+  }, []);
+
+  const loadReports = useCallback(async () => {
+    const params = new URLSearchParams();
+    if (garageFilter) params.set("garageId", garageFilter);
+    if (employeeFilter) params.set("employeeId", employeeFilter);
+    if (fromDate) params.set("from", fromDate);
+    if (toDate) params.set("to", toDate);
+    const res = await fetch(`/api/shift-reports?${params.toString()}`);
+    if (res.ok) setReports(await res.json());
+  }, [garageFilter, employeeFilter, fromDate, toDate]);
+
+  useEffect(() => { loadFilters(); }, [loadFilters]);
+  useEffect(() => { loadReports(); }, [loadReports]);
+
+  const totals = reports.reduce(
+    (acc, r) => ({
+      cash: acc.cash + r.cashRevenue,
+      credit: acc.credit + r.creditCardRevenue,
+      other: acc.other + r.otherRevenue,
+      gross: acc.gross + r.grossTotal,
+      net: acc.net + r.netTotal,
+    }),
+    { cash: 0, credit: 0, other: 0, gross: 0, net: 0 }
+  );
+
+  function exportCsv() {
+    const rows = [
+      ["Date", "Garage", "Employee", "Status", "Cash", "Credit Card", "Other", "Adjustments", "Gross", "Net"],
+      ...reports.map((r) => [
+        r.shiftDate, r.garage?.name || "", r.employee?.name || "", r.status,
+        r.cashRevenue, r.creditCardRevenue, r.otherRevenue, r.adjustments, r.grossTotal, r.netTotal,
+      ]),
+    ];
+    const csv = rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `revenue-export-${todayStr()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  if (viewing) {
+    return (
+      <>
+        <h1 className="title">{viewing.shiftDate} — {viewing.employee?.name}</h1>
+        <div className="card">
+          <p style={{ fontSize: 13, color: "var(--slate2)", marginBottom: 10 }}>{viewing.garage?.name}</p>
+          <div className="totals-grid">
+            <div className="totals-cell"><div className="label">Cash</div><div className="value">{money(viewing.cashRevenue)}</div></div>
+            <div className="totals-cell"><div className="label">Credit card</div><div className="value">{money(viewing.creditCardRevenue)}</div></div>
+            <div className="totals-cell"><div className="label">Other</div><div className="value">{money(viewing.otherRevenue)}</div></div>
+            <div className="totals-cell"><div className="label">Adjustments</div><div className="value">{money(viewing.adjustments)}</div></div>
+            <div className="totals-cell"><div className="label">Gross total</div><div className="value">{money(viewing.grossTotal)}</div></div>
+            <div className="totals-cell"><div className="label">Net total</div><div className="value">{money(viewing.netTotal)}</div></div>
+          </div>
+          {viewing.notes && <p style={{ marginTop: 14, fontSize: 13, color: "var(--slate2)" }}>Notes: {viewing.notes}</p>}
+          <TicketTransactionsList tickets={viewing.tickets} />
+        </div>
+        <button className="btn btn-ghost" onClick={() => setViewing(null)}>Back</button>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <div className="queue-header">
+        <h1 className="title" style={{ marginBottom: 2 }}>Central Revenue</h1>
+        <span className="count-badge">{reports.length} reports</span>
+      </div>
+
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 4 }}>
+        <div className="field" style={{ flex: 1, minWidth: 140 }}>
+          <label>Garage</label>
+          <select value={garageFilter} onChange={(e) => setGarageFilter(e.target.value)}>
+            <option value="">All garages</option>
+            {garages.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+          </select>
+        </div>
+        <div className="field" style={{ flex: 1, minWidth: 140 }}>
+          <label>Employee</label>
+          <select value={employeeFilter} onChange={(e) => setEmployeeFilter(e.target.value)}>
+            <option value="">All employees</option>
+            {employees.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+          </select>
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <div className="field" style={{ flex: 1, minWidth: 140 }}>
+          <label>From</label>
+          <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+        </div>
+        <div className="field" style={{ flex: 1, minWidth: 140 }}>
+          <label>To</label>
+          <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+        </div>
+      </div>
+
+      <div className="card">
+        <div style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--brass-light)", marginBottom: 10 }}>
+          Totals for this filter
+        </div>
+        <div className="totals-grid">
+          <div className="totals-cell"><div className="label">Cash</div><div className="value">{money(totals.cash)}</div></div>
+          <div className="totals-cell"><div className="label">Credit card</div><div className="value">{money(totals.credit)}</div></div>
+          <div className="totals-cell"><div className="label">Other</div><div className="value">{money(totals.other)}</div></div>
+          <div className="totals-cell"><div className="label">Gross</div><div className="value">{money(totals.gross)}</div></div>
+        </div>
+        <div className="totals-cell" style={{ marginTop: 10 }}>
+          <div className="label">Net total</div>
+          <div className="value" style={{ fontSize: 26 }}>{money(totals.net)}</div>
+        </div>
+        <button className="btn btn-ghost" onClick={exportCsv} style={{ marginTop: 14 }}>
+          Export to CSV
+        </button>
+      </div>
+
+      {reports.length === 0 ? (
+        <div className="empty-state">
+          <div className="big">No reports match this filter</div>
+        </div>
+      ) : (
+        reports.map((r) => <ReportRow key={r.id} r={r} showEmployee onClick={() => setViewing(r)} />)
+      )}
+    </>
+  );
+}
+
+// ---------------- GARAGES (Super Admin / Admin) ----------------
+function GaragesView() {
+  const [garages, setGarages] = useState([]);
+  const [error, setError] = useState("");
+  const [showForm, setShowForm] = useState(false);
+  const [editId, setEditId] = useState(null);
+  const [editName, setEditName] = useState("");
+  const [editAddress, setEditAddress] = useState("");
+  const [editRate, setEditRate] = useState("");
+  const [editError, setEditError] = useState("");
+
+  const load = useCallback(async () => {
+    const res = await fetch("/api/garages");
+    if (res.ok) setGarages(await res.json());
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function addGarage(e) {
+    e.preventDefault();
+    setError("");
+    const form = e.target;
+    const body = { name: form.name.value, address: form.address.value, hourlyRate: form.hourlyRate.value };
+    const res = await fetch("/api/garages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) { setError(data.error); return; }
+    form.reset();
+    setShowForm(false);
+    load();
+  }
+
+  async function removeGarage(id) {
+    setError("");
+    const res = await fetch(`/api/garages/${id}`, { method: "DELETE" });
+    const data = await res.json();
+    if (!res.ok) { setError(data.error); return; }
+    load();
+  }
+
+  function startEdit(g) {
+    setEditId(g.id);
+    setEditName(g.name);
+    setEditAddress(g.address || "");
+    setEditRate(g.hourlyRate ?? "");
+    setEditError("");
+  }
+
+  async function saveEdit(id) {
+    setEditError("");
+    const res = await fetch(`/api/garages/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: editName, address: editAddress, hourlyRate: editRate }),
+    });
+    const data = await res.json();
+    if (!res.ok) { setEditError(data.error); return; }
+    setEditId(null);
+    load();
+  }
+
+  return (
+    <>
+      <div className="queue-header">
+        <h1 className="title" style={{ marginBottom: 2 }}>Garages</h1>
+        <span className="count-badge">{garages.length} locations</span>
+      </div>
+      {error && <div className="error-box">{error}</div>}
+
+      {garages.map((g) => (
+        <div key={g.id}>
+          <div className="list-row">
+            <div>
+              <div style={{ fontWeight: 600 }}>{g.name}</div>
+              <div style={{ fontSize: 12, color: "var(--slate2)" }}>
+                {g.address || "No address on file"} · {g._count?.users ?? 0} accounts · {g._count?.shiftReports ?? 0} reports
+                {g.hourlyRate ? ` · $${g.hourlyRate}/hr` : " · No hourly rate set"}
+              </div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <button
+                onClick={() => (editId === g.id ? setEditId(null) : startEdit(g))}
+                style={{ background: "none", border: "none", color: "var(--brass-light)", fontSize: 11, cursor: "pointer", textTransform: "uppercase" }}
+              >
+                Edit
+              </button>
+              <button
+                className="role-tag"
+                style={{ background: "none", cursor: "pointer", color: "var(--red)" }}
+                onClick={() => {
+                  if (window.confirm(`Remove ${g.name}?`)) removeGarage(g.id);
+                }}
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+          {editId === g.id && (
+            <div style={{ padding: "10px 0 14px", borderBottom: "1px solid var(--line)" }}>
+              {editError && <div className="error-box">{editError}</div>}
+              <div className="field">
+                <label>Garage name</label>
+                <input value={editName} onChange={(e) => setEditName(e.target.value)} />
+              </div>
+              <div className="field">
+                <label>Address</label>
+                <input value={editAddress} onChange={(e) => setEditAddress(e.target.value)} />
+              </div>
+              <div className="field">
+                <label>Hourly parking rate ($)</label>
+                <input type="number" step="0.01" min="0" value={editRate} onChange={(e) => setEditRate(e.target.value)} placeholder="0.00" />
+              </div>
+              <button className="mini-btn start" onClick={() => saveEdit(g.id)}>Save changes</button>
+            </div>
+          )}
+        </div>
+      ))}
+
+      {showForm ? (
+        <form onSubmit={addGarage} style={{ marginTop: 18 }}>
+          <div className="field">
+            <label>Garage name</label>
+            <input name="name" required />
+          </div>
+          <div className="field">
+            <label>Address (optional)</label>
+            <input name="address" />
+          </div>
+          <div className="field">
+            <label>Hourly parking rate ($)</label>
+            <input name="hourlyRate" type="number" step="0.01" min="0" placeholder="0.00" />
+          </div>
+          <button className="btn btn-primary" type="submit">Save garage</button>
+          <button className="btn btn-ghost" type="button" onClick={() => setShowForm(false)}>Cancel</button>
+        </form>
+      ) : (
+        <button className="btn btn-ghost" onClick={() => setShowForm(true)} style={{ marginTop: 14 }}>
+          + Add a garage
+        </button>
+      )}
+    </>
+  );
+}
+
+// ---------------- USERS (Super Admin / Admin / Garage Manager) ----------------
+function UsersView({ currentUser }) {
+  const isGarageManager = currentUser.role === "GARAGE_MANAGER";
+  const isSuperAdmin = currentUser.role === "SUPER_ADMIN";
+  const [users, setUsers] = useState([]);
+  const [garages, setGarages] = useState([]);
+  const [error, setError] = useState("");
+  const [showForm, setShowForm] = useState(false);
+  const [role, setRole] = useState(isGarageManager ? "EMPLOYEE" : isSuperAdmin ? "ADMIN" : "GARAGE_MANAGER");
+  const [resetId, setResetId] = useState(null);
+  const [resetValue, setResetValue] = useState("");
+  const [resetError, setResetError] = useState("");
+
+  const load = useCallback(async () => {
+    const requests = [fetch("/api/users")];
+    if (!isGarageManager) requests.push(fetch("/api/garages"));
+    const results = await Promise.all(requests);
+    if (results[0].ok) setUsers(await results[0].json());
+    if (!isGarageManager && results[1]?.ok) setGarages(await results[1].json());
+  }, [isGarageManager]);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function createUser(e) {
+    e.preventDefault();
+    setError("");
+    const form = e.target;
+    const body = {
+      name: form.name.value,
+      username: form.username.value,
+      password: form.password.value,
+      role: form.role.value,
+      garageId: form.garageId ? form.garageId.value : undefined,
+    };
+    const res = await fetch("/api/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) { setError(data.error); return; }
+    form.reset();
+    setShowForm(false);
+    load();
+  }
+
+  async function removeUser(id) {
+    setError("");
+    const res = await fetch(`/api/users/${id}`, { method: "DELETE" });
+    const data = await res.json();
+    if (!res.ok) { setError(data.error); return; }
+    load();
+  }
+
+  async function saveReset(id) {
+    setResetError("");
+    if (!resetValue || resetValue.length < 6) {
+      setResetError("New password must be at least 6 characters.");
+      return;
+    }
+    const res = await fetch(`/api/users/${id}/reset-password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ newPassword: resetValue }),
+    });
+    const data = await res.json();
+    if (!res.ok) { setResetError(data.error); return; }
+    setResetId(null);
+    setResetValue("");
+  }
+
+  const roleOptions = isGarageManager
+    ? ["EMPLOYEE"]
+    : isSuperAdmin
+    ? ["ADMIN"]
+    : ["GARAGE_MANAGER", "EMPLOYEE"];
+
+  // Admin accounts are global (no garage), same as Super Admin — only
+  // Garage Manager/Employee actually need one selected.
+  const needsGarage = role === "GARAGE_MANAGER" || role === "EMPLOYEE";
+
+  return (
+    <>
+      <div className="queue-header">
+        <h1 className="title" style={{ marginBottom: 2 }}>{isGarageManager ? "Employees" : isSuperAdmin ? "Admins" : "Users"}</h1>
+        <span className="count-badge">{users.length} accounts</span>
+      </div>
+      {error && <div className="error-box">{error}</div>}
+
+      {users.map((u) => (
+        <div key={u.id}>
+          <div className="list-row">
+            <div>
+              <div style={{ fontWeight: 600 }}>{u.name}</div>
+              <div style={{ fontSize: 12, color: "var(--slate2)" }}>
+                {u.username}{u.garage ? ` · ${u.garage.name}` : ""}
+              </div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span className="role-tag">{u.role.replace("_", " ")}</span>
+              <button
+                onClick={() => { setResetId(resetId === u.id ? null : u.id); setResetValue(""); setResetError(""); }}
+                style={{ background: "none", border: "none", color: "var(--brass-light)", fontSize: 11, cursor: "pointer", textTransform: "uppercase" }}
+              >
+                Reset
+              </button>
+              <button
+                onClick={() => { if (window.confirm(`Remove ${u.name}?`)) removeUser(u.id); }}
+                style={{ background: "none", border: "none", color: "var(--red)", fontSize: 11, cursor: "pointer", textTransform: "uppercase" }}
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+          {resetId === u.id && (
+            <div style={{ padding: "10px 0 14px", borderBottom: "1px solid var(--line)" }}>
+              {resetError && <div className="error-box">{resetError}</div>}
+              <div style={{ display: "flex", gap: 8 }}>
+                <input type="password" placeholder="New password" value={resetValue} onChange={(e) => setResetValue(e.target.value)} style={{ flex: 1, background: "var(--navy-2)", border: "1px solid var(--line)", color: "var(--cream)", padding: "10px 12px", borderRadius: 8 }} />
+                <button className="btn btn-primary" style={{ width: "auto", padding: "10px 16px" }} onClick={() => saveReset(u.id)}>Save</button>
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+
+      {showForm ? (
+        <form onSubmit={createUser} style={{ marginTop: 18 }}>
+          <div className="field">
+            <label>Name</label>
+            <input name="name" required />
+          </div>
+          <div className="field">
+            <label>Username</label>
+            <input name="username" required />
+          </div>
+          <div className="field">
+            <label>Password</label>
+            <input name="password" type="password" required minLength={6} />
+          </div>
+          {!isGarageManager && (
+            <div className="field">
+              <label>Role</label>
+              <select name="role" value={role} onChange={(e) => setRole(e.target.value)}>
+                {roleOptions.map((r) => <option key={r} value={r}>{r.replace("_", " ")}</option>)}
+              </select>
+            </div>
+          )}
+          {isGarageManager && <input type="hidden" name="role" value="EMPLOYEE" />}
+          {!isGarageManager && needsGarage && (
+            <div className="field">
+              <label>Garage</label>
+              <select name="garageId" required>
+                <option value="" disabled>Select a garage…</option>
+                {garages.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+              </select>
+            </div>
+          )}
+          <button className="btn btn-primary" type="submit">Create account</button>
+          <button className="btn btn-ghost" type="button" onClick={() => setShowForm(false)}>Cancel</button>
+        </form>
+      ) : (
+        <button className="btn btn-ghost" onClick={() => setShowForm(true)} style={{ marginTop: 14 }}>
+          + Add {isGarageManager ? "an employee" : "a user"}
+        </button>
+      )}
+    </>
+  );
+}

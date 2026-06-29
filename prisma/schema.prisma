@@ -1,0 +1,138 @@
+// Prisma schema for Integral Revenue Management
+// Production datasource is Postgres (Neon, same as Integral Valet).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// role:   "SUPER_ADMIN" | "ADMIN" | "GARAGE_MANAGER" | "EMPLOYEE"
+// Super Admin: full platform control, including creating Admin accounts.
+// Admin: manages garages and Garage Managers, but cannot create other Admins.
+// Garage Manager: scoped to one garage, creates Employee accounts.
+// Employee: scoped to one garage, fills/submits only their own shift reports.
+
+model User {
+  id           String   @id @default(cuid())
+  username     String   @unique
+  passwordHash String
+  name         String
+  role         String   @default("EMPLOYEE")
+  createdAt    DateTime @default(now())
+
+  // Which garage this account belongs to. Super Admin and Admin are global
+  // and leave this null. Garage Manager and Employee always have one.
+  garageId String?
+  garage   Garage? @relation(fields: [garageId], references: [id])
+
+  shiftReports   ShiftReport[] @relation("SubmittedBy")
+  checkedInTickets  Ticket[]   @relation("CheckedInBy")
+  checkedOutTickets Ticket[]   @relation("CheckedOutBy")
+}
+
+model Garage {
+  id        String   @id @default(cuid())
+  name      String
+  address   String?
+  // Hourly parking rate, used in Phase 2's ticket/fee calculation.
+  hourlyRate Float?  @default(0)
+  createdAt DateTime @default(now())
+
+  users        User[]
+  shiftReports ShiftReport[]
+  tickets      Ticket[]
+}
+
+model ShiftReport {
+  id       String @id @default(cuid())
+  garageId String
+  garage   Garage @relation(fields: [garageId], references: [id])
+
+  employeeId String
+  employee   User   @relation("SubmittedBy", fields: [employeeId], references: [id])
+
+  shiftDate String // YYYY-MM-DD, the calendar day this shift covers
+  startTime String? // free-text or HH:MM, e.g. "7:00 AM"
+  endTime   String?
+
+  cashRevenue       Float @default(0)
+  creditCardRevenue Float @default(0)
+  otherRevenue      Float @default(0)
+  otherDescription  String?
+
+  // Any deduction from gross — refunds, discrepancies, cash drawer
+  // shortages, etc. Optional, defaults to 0 so net == gross unless used.
+  adjustments       Float @default(0)
+  adjustmentsNote    String?
+
+  // Calculated and stored at submit time so a report's totals never
+  // silently change if rates or logic evolve later.
+  grossTotal Float @default(0)
+  netTotal   Float @default(0)
+
+  notes String?
+
+  // "DRAFT" | "SUBMITTED" — once submitted, the report is locked and
+  // cannot be edited by the employee who filed it.
+  status      String    @default("DRAFT")
+  submittedAt DateTime?
+
+  tickets Ticket[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Ticket {
+  id           String @id @default(cuid())
+  garageId     String
+  garage       Garage @relation(fields: [garageId], references: [id])
+
+  // Short human-readable number shown on the printed ticket (e.g. "0042"),
+  // unique per garage. qrToken is the longer, unguessable string actually
+  // encoded into the QR code/barcode for scanning.
+  ticketNumber String
+  qrToken      String @unique
+
+  // "PARKED" | "COMPLETED" | "CANCELLED"
+  status String @default("PARKED")
+
+  checkInTime  DateTime  @default(now())
+  checkOutTime DateTime?
+
+  // Optional fields captured at check-in.
+  apartmentNumber String?
+  vehicleMake     String?
+  vehicleModel    String?
+  vehicleColor    String?
+  licensePlate    String?
+  parkingLocation String?
+  // Photo of the vehicle/plate taken at check-in, stored in Vercel Blob.
+  photoUrl        String?
+
+  // Computed at checkout.
+  durationMinutes Int?
+  feeAmount       Float?
+  // "CASH" | "CREDIT_CARD"
+  paymentMethod   String?
+  paymentNote     String?
+
+  checkedInById  String
+  checkedInBy    User   @relation("CheckedInBy", fields: [checkedInById], references: [id])
+  checkedOutById String?
+  checkedOutBy   User?  @relation("CheckedOutBy", fields: [checkedOutById], references: [id])
+
+  // The shift report this transaction's revenue was applied to, so the
+  // Shift Report's totals stay in sync with completed tickets automatically.
+  shiftReportId String?
+  shiftReport   ShiftReport? @relation(fields: [shiftReportId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([garageId, ticketNumber])
+}

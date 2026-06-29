@@ -1,0 +1,109 @@
+:root{
+  --navy:#1B2430;
+  --navy-2:#262F3D;
+  --brass:#C9A227;
+  --brass-light:#E4C75F;
+  --cream:#F7F4EE;
+  --slate2:#6B7280;
+  --green:#4A7856;
+  --red:#B0413E;
+  --line:rgba(247,244,238,0.14);
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{
+  background:var(--navy);
+  color:var(--cream);
+  font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  min-height:100vh;
+  -webkit-font-smoothing:antialiased;
+}
+a{color:var(--brass-light);}
+
+.shell{ max-width:480px; margin:0 auto; min-height:100vh; display:flex; flex-direction:column; }
+body.native-app .shell{ max-width:100%; padding-left:env(safe-area-inset-left); padding-right:env(safe-area-inset-right); }
+body.native-app header.topbar{ padding-top:calc(18px + env(safe-area-inset-top)); }
+body.native-app footer.note{ padding-bottom:calc(14px + env(safe-area-inset-bottom)); }
+
+header.topbar{
+  display:flex; align-items:center; justify-content:space-between;
+  padding:18px 20px 14px; border-bottom:1px solid var(--line);
+}
+.brand{ display:flex; align-items:center; gap:8px; }
+.brand img.logo{ width:36px; height:36px; border-radius:8px; flex-shrink:0; }
+.brand .mark{ font-family:"Oswald",sans-serif; font-weight:600; font-size:18px; letter-spacing:0.05em; text-transform:uppercase; color:var(--brass-light); }
+.brand .sub{ font-size:11px; letter-spacing:0.12em; text-transform:uppercase; color:var(--slate2); }
+main{ flex:1; padding:22px 20px 100px; }
+
+.hero-line{ font-size:13px; color:var(--slate2); letter-spacing:0.04em; margin-bottom:6px; }
+h1.title{ font-family:"Oswald",sans-serif; font-size:26px; line-height:1.1; margin:0 0 18px; text-transform:uppercase; letter-spacing:0.01em; }
+
+.field{ margin-bottom:16px; }
+.field label{ display:block; font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:var(--slate2); margin-bottom:7px; }
+.field input, .field select, .field textarea{
+  width:100%; background:var(--navy-2); border:1px solid var(--line); color:var(--cream);
+  padding:13px 14px; border-radius:8px; font-size:16px; font-family:inherit;
+}
+.field input:focus, .field select:focus, .field textarea:focus{ outline:2px solid var(--brass); outline-offset:1px; }
+.field-hint{ font-size:11px; color:var(--slate2); margin-top:5px; }
+
+.btn{
+  width:100%; border:none; border-radius:8px; padding:14px 18px;
+  font-family:"Oswald",sans-serif; font-size:15px; letter-spacing:0.08em; text-transform:uppercase;
+  cursor:pointer; transition:transform .12s ease, opacity .12s ease;
+}
+.btn:active{ transform:scale(0.98); }
+.btn:disabled{ opacity:0.4; cursor:not-allowed; }
+.btn-primary{ background:var(--brass); color:var(--navy); font-weight:600; }
+.btn-ghost{ background:transparent; border:1px solid var(--line); color:var(--cream); margin-top:10px; }
+
+.error-box{
+  background:rgba(176,65,58,0.12); border:1px solid var(--red); color:#f3c9c6;
+  border-radius:8px; padding:12px 14px; font-size:13px; margin-bottom:16px;
+}
+.success-box{
+  background:rgba(74,120,86,0.15); border:1px solid var(--green); color:#bfe2c8;
+  border-radius:8px; padding:12px 14px; font-size:13px; margin-bottom:16px;
+}
+
+.card{ position:relative; background:var(--navy-2); border-radius:14px; padding:20px; border:1px solid var(--line); margin-bottom:16px; }
+
+.tabs{ display:flex; border:1px solid var(--line); border-radius:20px; overflow-x:auto; margin-bottom:18px; -webkit-overflow-scrolling:touch; }
+.tabs button{ flex:1 0 auto; min-width:72px; background:transparent; border:none; color:var(--slate2); padding:9px 10px; font-family:"Oswald",sans-serif; font-size:12px; letter-spacing:0.06em; text-transform:uppercase; cursor:pointer; white-space:nowrap; }
+.tabs button.active{ background:var(--brass); color:var(--navy); font-weight:600; border-radius:20px; }
+
+.queue-header{ display:flex; justify-content:space-between; align-items:baseline; margin-bottom:14px; }
+.count-badge{ font-family:"Oswald",sans-serif; font-size:13px; color:var(--brass-light); letter-spacing:0.06em; }
+.empty-state{ text-align:center; padding:50px 20px; color:var(--slate2); }
+.empty-state .big{ font-family:"Oswald",sans-serif; font-size:18px; color:var(--cream); text-transform:uppercase; letter-spacing:0.04em; margin-bottom:6px; }
+
+.list-row{ display:flex; justify-content:space-between; align-items:center; padding:12px 0; border-bottom:1px solid var(--line); font-size:14px; }
+.role-tag{ font-size:10px; padding:3px 8px; border-radius:10px; border:1px solid var(--line); color:var(--slate2); text-transform:uppercase; letter-spacing:0.06em; }
+.status-tag{ font-size:10px; padding:3px 10px; border-radius:10px; text-transform:uppercase; letter-spacing:0.06em; font-weight:600; }
+.status-DRAFT{ border:1px solid var(--slate2); color:var(--slate2); }
+.status-SUBMITTED{ border:1px solid var(--green); color:var(--green); background:rgba(74,120,86,0.12); }
+
+.totals-grid{ display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:6px; }
+.totals-cell{ background:var(--navy); border:1px solid var(--line); border-radius:8px; padding:12px; }
+.totals-cell .label{ font-size:10px; letter-spacing:0.08em; text-transform:uppercase; color:var(--slate2); margin-bottom:4px; }
+.totals-cell .value{ font-family:"Oswald",sans-serif; font-size:20px; color:var(--brass-light); font-weight:600; }
+
+footer.note{ text-align:center; font-size:11px; color:var(--slate2); padding:14px 20px 22px; }
+
+/* Printable ticket — sized for an 80mm thermal receipt printer. When the
+   browser's print dialog is opened, only .print-ticket is shown; everything
+   else on the page is hidden. */
+.print-ticket{ display:none; }
+@media print{
+  body *{ visibility:hidden; }
+  .print-ticket, .print-ticket *{ visibility:visible; }
+  .print-ticket{
+    display:block; position:absolute; top:0; left:0; width:80mm;
+    padding:4mm; font-family:"Courier New", monospace; color:#000; background:#fff; font-size:18px;
+  }
+  .print-ticket .pt-center{ text-align:center; }
+  .print-ticket .pt-big{ font-size:30px; font-weight:700; }
+  .print-ticket .pt-line{ border-top:2px dashed #000; margin:10px 0; }
+  .print-ticket .pt-row{ display:flex; justify-content:space-between; font-size:18px; margin:6px 0; line-height:1.3; }
+  .print-ticket .pt-row span:first-child{ font-weight:600; padding-right:8px; }
+}
