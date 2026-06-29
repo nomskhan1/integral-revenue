@@ -45,6 +45,26 @@ model Garage {
   users        User[]
   shiftReports ShiftReport[]
   tickets      Ticket[]
+  rateTiers    RateTier[]
+}
+
+model RateTier {
+  id       String @id @default(cuid())
+  garageId String
+  garage   Garage @relation(fields: [garageId], references: [id])
+
+  // Optional display name, e.g. "Up to 1 hour" — purely cosmetic.
+  label String?
+
+  // The fee charged for any ticket whose duration falls into this tier.
+  // maxHours is the upper bound (inclusive) — e.g. maxHours=1 covers any
+  // stay up to and including 1 hour. The single tier with maxHours = null
+  // is the "anything beyond every other tier" catch-all and is always
+  // applied last, regardless of how many other tiers exist.
+  maxHours Int?
+  fee      Float
+
+  createdAt DateTime @default(now())
 }
 
 model ShiftReport {

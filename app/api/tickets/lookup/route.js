@@ -1,5 +1,6 @@
 const prisma = require("../../../../lib/db");
 const { getSessionFromRequest } = require("../../../../lib/auth");
+const { calculateFee } = require("../../../../lib/pricing");
 
 // Used at checkout: the valet scans the QR code (which "types" the qrToken
 // into the input, same as a keyboard) or manually types the ticket number.
@@ -31,7 +32,7 @@ async function GET(req) {
       status: "PARKED",
       OR: [{ qrToken: code }, { ticketNumber: code }],
     },
-    include: { garage: { select: { name: true, hourlyRate: true } } },
+    include: { garage: { select: { id: true, name: true, hourlyRate: true } } },
   });
 
   if (!ticket) {
@@ -45,8 +46,7 @@ async function GET(req) {
   // customer before finalizing the charge.
   const now = new Date();
   const minutes = Math.max(1, Math.round((now - new Date(ticket.checkInTime)) / 60000));
-  const hours = Math.ceil(minutes / 60);
-  const previewFee = hours * (ticket.garage.hourlyRate || 0);
+  const { feeAmount: previewFee } = await calculateFee(ticket.garage, minutes);
 
   return new Response(JSON.stringify({ ...ticket, previewMinutes: minutes, previewFee }), { status: 200 });
 }

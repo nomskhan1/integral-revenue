@@ -1,5 +1,6 @@
 const prisma = require("../../../../../lib/db");
 const { getSessionFromRequest } = require("../../../../../lib/auth");
+const { calculateFee } = require("../../../../../lib/pricing");
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
@@ -42,11 +43,7 @@ async function POST(req, { params }) {
 
   const checkOutTime = new Date();
   const durationMinutes = Math.max(1, Math.round((checkOutTime - new Date(ticket.checkInTime)) / 60000));
-  // Billed by the hour, rounded up — the common convention for parking
-  // garages (e.g. 61 minutes bills as 2 hours). Adjust here if your
-  // pricing model is different (e.g. per-minute, or grace periods).
-  const hours = Math.ceil(durationMinutes / 60);
-  const feeAmount = Math.round(hours * (ticket.garage.hourlyRate || 0) * 100) / 100;
+  const { feeAmount } = await calculateFee(ticket.garage, durationMinutes);
 
   // Find (or create) today's draft shift report for this employee, so the
   // transaction's revenue is automatically reflected in their report —
