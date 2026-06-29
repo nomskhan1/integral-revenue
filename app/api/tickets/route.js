@@ -65,7 +65,7 @@ async function POST(req) {
     select: { ticketNumber: true },
   });
   const nextNum = lastTicket ? (parseInt(lastTicket.ticketNumber, 10) || 0) + 1 : 1;
-  const ticketNumber = String(nextNum).padStart(4, "0");
+  const ticketNumber = String(nextNum);
 
   const qrToken = crypto.randomBytes(16).toString("hex");
 
