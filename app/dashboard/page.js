@@ -121,7 +121,7 @@ export default function Dashboard() {
         {tab === "employees" && user.role === "GARAGE_MANAGER" && <UsersView currentUser={user} />}
         {tab === "garage-reports" && user.role === "GARAGE_MANAGER" && <GarageReportsView user={user} />}
         {tab === "revenue" && isAdmin && <RevenueDashboard user={user} />}
-        {tab === "garages" && (isAdmin || isSuperAdmin) && <GaragesView />}
+        {tab === "garages" && (isAdmin || isSuperAdmin) && <GaragesView currentUser={user} />}
         {tab === "users" && (isAdmin || isSuperAdmin) && <UsersView currentUser={user} />}
 
         {showPasswordPanel && <ChangePasswordPanel onClose={() => setShowPasswordPanel(false)} />}
@@ -349,7 +349,7 @@ function CheckInView() {
           {[0, 1].map((copy) => (
             <div key={copy} style={{ marginBottom: copy === 0 ? "10mm" : 0 }}>
               <div className="pt-center pt-big">{ticket.garage?.name || "Garage"}</div>
-              <div className="pt-center" style={{ fontSize: 13 }}>{copy === 0 ? "CUSTOMER COPY" : "GARAGE COPY"}</div>
+              <div className="pt-center" style={{ fontSize: 17, fontWeight: 600 }}>{copy === 0 ? "CUSTOMER COPY" : "GARAGE COPY"}</div>
               <div className="pt-line"></div>
               <div className="pt-center" style={{ fontSize: 32, fontWeight: 700 }}>#{ticket.ticketNumber}</div>
               <div className="pt-center"><img src={ticket.qrDataUrl} alt="" style={{ width: "140px" }} /></div>
@@ -456,12 +456,18 @@ function CheckOutView() {
   const [completing, setCompleting] = useState(false);
   const [completed, setCompleted] = useState(null);
 
-  async function lookup(e) {
-    e.preventDefault();
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraError, setCameraError] = useState("");
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+  const scanLoopRef = useRef(null);
+
+  async function lookupByCode(rawCode) {
     setError("");
     setTicket(null);
-    if (!code.trim()) return;
-    const res = await fetch(`/api/tickets/lookup?code=${encodeURIComponent(code.trim())}`);
+    const trimmed = (rawCode || "").trim();
+    if (!trimmed) return;
+    const res = await fetch(`/api/tickets/lookup?code=${encodeURIComponent(trimmed)}`);
     const data = await res.json();
     if (!res.ok) {
       setError(data.error);
@@ -470,6 +476,62 @@ function CheckOutView() {
     }
     setTicket(data);
   }
+
+  async function lookup(e) {
+    e.preventDefault();
+    await lookupByCode(code);
+  }
+
+  async function openCamera() {
+    setCameraError("");
+    setCameraOpen(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+      const jsQR = (await import("jsqr")).default;
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+
+      function tick() {
+        if (!videoRef.current || videoRef.current.readyState !== videoRef.current.HAVE_ENOUGH_DATA) {
+          scanLoopRef.current = requestAnimationFrame(tick);
+          return;
+        }
+        canvas.width = videoRef.current.videoWidth;
+        canvas.height = videoRef.current.videoHeight;
+        ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const result = jsQR(imageData.data, imageData.width, imageData.height);
+        if (result?.data) {
+          closeCamera();
+          setCode(result.data);
+          lookupByCode(result.data);
+          return;
+        }
+        scanLoopRef.current = requestAnimationFrame(tick);
+      }
+      scanLoopRef.current = requestAnimationFrame(tick);
+    } catch (err) {
+      setCameraError("Couldn't access the camera. Check your browser's camera permission and try again.");
+    }
+  }
+
+  function closeCamera() {
+    if (scanLoopRef.current) cancelAnimationFrame(scanLoopRef.current);
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+    setCameraOpen(false);
+  }
+
+  useEffect(() => {
+    return () => closeCamera();
+  }, []);
 
   async function completeCheckout() {
     setCompleting(true);
@@ -566,9 +628,32 @@ function CheckOutView() {
       <div className="hero-line">Customer departing</div>
       <h1 className="title">Check Out a Vehicle</h1>
       {error && <div className="error-box">{error}</div>}
+
+      {cameraOpen && (
+        <div className="card" style={{ textAlign: "center" }}>
+          {cameraError && <div className="error-box">{cameraError}</div>}
+          <video
+            ref={videoRef}
+            playsInline
+            muted
+            style={{ width: "100%", borderRadius: 10, background: "#000" }}
+          />
+          <p style={{ fontSize: 12, color: "var(--slate2)", marginTop: 8 }}>
+            Point the camera at the ticket's QR code — it'll scan automatically.
+          </p>
+          <button className="btn btn-ghost" onClick={closeCamera}>
+            Cancel scanning
+          </button>
+        </div>
+      )}
+
+      <button className="btn btn-primary" onClick={openCamera} disabled={cameraOpen} style={{ marginBottom: 14 }}>
+        📷 Scan with Camera
+      </button>
+
       <form onSubmit={lookup}>
         <div className="field">
-          <label>Scan ticket QR code, or type ticket number</label>
+          <label>Or scan with a handheld scanner, or type ticket number</label>
           <input
             autoFocus
             value={code}
@@ -1113,7 +1198,8 @@ function RevenueDashboard({ user }) {
 }
 
 // ---------------- GARAGES (Super Admin / Admin) ----------------
-function GaragesView() {
+function GaragesView({ currentUser }) {
+  const isAdmin = currentUser?.role === "ADMIN";
   const [garages, setGarages] = useState([]);
   const [error, setError] = useState("");
   const [showForm, setShowForm] = useState(false);
@@ -1123,12 +1209,57 @@ function GaragesView() {
   const [editRate, setEditRate] = useState("");
   const [editError, setEditError] = useState("");
 
+  const [tiersGarageId, setTiersGarageId] = useState(null);
+  const [tiers, setTiers] = useState([]);
+  const [tiersError, setTiersError] = useState("");
+  const [tierMaxHours, setTierMaxHours] = useState("");
+  const [tierFee, setTierFee] = useState("");
+  const [tierLabel, setTierLabel] = useState("");
+
   const load = useCallback(async () => {
     const res = await fetch("/api/garages");
     if (res.ok) setGarages(await res.json());
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  async function loadTiers(garageId) {
+    setTiersError("");
+    const res = await fetch(`/api/garages/${garageId}/rate-tiers`);
+    if (res.ok) setTiers(await res.json());
+  }
+
+  function toggleTiers(garageId) {
+    if (tiersGarageId === garageId) {
+      setTiersGarageId(null);
+    } else {
+      setTiersGarageId(garageId);
+      setTierMaxHours(""); setTierFee(""); setTierLabel("");
+      loadTiers(garageId);
+    }
+  }
+
+  async function addTier(e) {
+    e.preventDefault();
+    setTiersError("");
+    const res = await fetch(`/api/garages/${tiersGarageId}/rate-tiers`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label: tierLabel, maxHours: tierMaxHours, fee: tierFee }),
+    });
+    const data = await res.json();
+    if (!res.ok) { setTiersError(data.error); return; }
+    setTierMaxHours(""); setTierFee(""); setTierLabel("");
+    loadTiers(tiersGarageId);
+  }
+
+  async function removeTier(tierId) {
+    setTiersError("");
+    const res = await fetch(`/api/garages/${tiersGarageId}/rate-tiers/${tierId}`, { method: "DELETE" });
+    const data = await res.json();
+    if (!res.ok) { setTiersError(data.error); return; }
+    loadTiers(tiersGarageId);
+  }
 
   async function addGarage(e) {
     e.preventDefault();
@@ -1201,6 +1332,14 @@ function GaragesView() {
               >
                 Edit
               </button>
+              {isAdmin && (
+                <button
+                  onClick={() => toggleTiers(g.id)}
+                  style={{ background: "none", border: "none", color: "var(--brass-light)", fontSize: 11, cursor: "pointer", textTransform: "uppercase" }}
+                >
+                  Rate Tiers
+                </button>
+              )}
               <button
                 className="role-tag"
                 style={{ background: "none", cursor: "pointer", color: "var(--red)" }}
@@ -1224,10 +1363,57 @@ function GaragesView() {
                 <input value={editAddress} onChange={(e) => setEditAddress(e.target.value)} />
               </div>
               <div className="field">
-                <label>Hourly parking rate ($)</label>
+                <label>Hourly parking rate ($) — used only when no rate tiers are set below</label>
                 <input type="number" step="0.01" min="0" value={editRate} onChange={(e) => setEditRate(e.target.value)} placeholder="0.00" />
               </div>
               <button className="mini-btn start" onClick={() => saveEdit(g.id)}>Save changes</button>
+            </div>
+          )}
+
+          {tiersGarageId === g.id && (
+            <div style={{ padding: "10px 0 14px", borderBottom: "1px solid var(--line)" }}>
+              <div style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--brass-light)", marginBottom: 10 }}>
+                Rate Tiers — {g.name}
+              </div>
+              {tiersError && <div className="error-box">{tiersError}</div>}
+              {tiers.length === 0 && (
+                <p style={{ fontSize: 13, color: "var(--slate2)", marginBottom: 10 }}>
+                  No tiers set — this garage is using its flat hourly rate (${g.hourlyRate || 0}/hr) for every ticket.
+                </p>
+              )}
+              {tiers.map((t) => (
+                <div key={t.id} className="list-row" style={{ padding: "8px 0" }}>
+                  <span>
+                    {t.label ? `${t.label} — ` : ""}
+                    {t.maxHours === null ? "Anything beyond" : `Up to ${t.maxHours} hour${t.maxHours === 1 ? "" : "s"}`}
+                  </span>
+                  <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ color: "var(--brass-light)" }}>{money(t.fee)}</span>
+                    <button
+                      style={{ background: "none", border: "none", color: "var(--red)", fontSize: 11, cursor: "pointer", textTransform: "uppercase" }}
+                      onClick={() => { if (window.confirm("Remove this rate tier?")) removeTier(t.id); }}
+                    >
+                      Remove
+                    </button>
+                  </span>
+                </div>
+              ))}
+
+              <form onSubmit={addTier} style={{ marginTop: 14 }}>
+                <div className="field">
+                  <label>Label (optional)</label>
+                  <input value={tierLabel} onChange={(e) => setTierLabel(e.target.value)} placeholder="e.g. Overnight" />
+                </div>
+                <div className="field">
+                  <label>Up to how many hours? (leave blank for the open-ended "anything beyond" tier)</label>
+                  <input type="number" min="1" step="1" value={tierMaxHours} onChange={(e) => setTierMaxHours(e.target.value)} placeholder="e.g. 1" />
+                </div>
+                <div className="field">
+                  <label>Fee for this tier ($)</label>
+                  <input type="number" step="0.01" min="0" required value={tierFee} onChange={(e) => setTierFee(e.target.value)} placeholder="0.00" />
+                </div>
+                <button className="mini-btn start" type="submit">Add tier</button>
+              </form>
             </div>
           )}
         </div>
