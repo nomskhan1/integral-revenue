@@ -779,6 +779,8 @@ function ShiftReportForm({ existing, onSaved, onCancel }) {
   const [endTime, setEndTime] = useState(existing?.endTime || "");
   const [cashRevenue, setCashRevenue] = useState(existing?.cashRevenue ?? "");
   const [creditCardRevenue, setCreditCardRevenue] = useState(existing?.creditCardRevenue ?? "");
+  const [couponRevenue, setCouponRevenue] = useState(existing?.couponRevenue ?? "");
+  const [chargeBackRevenue, setChargeBackRevenue] = useState(existing?.chargeBackRevenue ?? "");
   const [otherRevenue, setOtherRevenue] = useState(existing?.otherRevenue ?? "");
   const [otherDescription, setOtherDescription] = useState(existing?.otherDescription || "");
   const [adjustments, setAdjustments] = useState(existing?.adjustments ?? "");
@@ -787,11 +789,18 @@ function ShiftReportForm({ existing, onSaved, onCancel }) {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // N/C and Loaner ticket counts come from already-linked tickets (read-only).
+  const ncTickets = existing?.tickets?.filter(t => t.paymentMethod === "NC") || [];
+  const loanerTickets = existing?.tickets?.filter(t => t.paymentMethod === "LOANER") || [];
+
   const cash = parseFloat(cashRevenue) || 0;
   const credit = parseFloat(creditCardRevenue) || 0;
+  const coupon = parseFloat(couponRevenue) || 0;
+  const chargeBack = parseFloat(chargeBackRevenue) || 0;
   const other = parseFloat(otherRevenue) || 0;
   const adj = parseFloat(adjustments) || 0;
-  const gross = cash + credit + other;
+  // N/C and Loaner are always $0 — excluded from gross.
+  const gross = cash + credit + coupon + chargeBack + other;
   const net = gross - adj;
 
   async function save(submit) {
@@ -799,7 +808,9 @@ function ShiftReportForm({ existing, onSaved, onCancel }) {
     setSaving(true);
     const body = {
       shiftDate, startTime, endTime,
-      cashRevenue: cash, creditCardRevenue: credit, otherRevenue: other, otherDescription,
+      cashRevenue: cash, creditCardRevenue: credit,
+      couponRevenue: coupon, chargeBackRevenue: chargeBack,
+      otherRevenue: other, otherDescription,
       adjustments: adj, adjustmentsNote, notes, submit,
     };
     const url = existing ? `/api/shift-reports/${existing.id}` : "/api/shift-reports";
@@ -811,10 +822,7 @@ function ShiftReportForm({ existing, onSaved, onCancel }) {
     });
     const data = await res.json();
     setSaving(false);
-    if (!res.ok) {
-      setError(data.error);
-      return;
-    }
+    if (!res.ok) { setError(data.error); return; }
     onSaved();
   }
 
@@ -837,13 +845,25 @@ function ShiftReportForm({ existing, onSaved, onCancel }) {
         </div>
       </div>
 
+      <div style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--brass-light)", margin: "8px 0 10px" }}>
+        Revenue by payment method
+      </div>
+
       <div className="field">
-        <label>Cash revenue</label>
+        <label>Cash</label>
         <input type="number" step="0.01" min="0" value={cashRevenue} onChange={(e) => setCashRevenue(e.target.value)} placeholder="0.00" />
       </div>
       <div className="field">
-        <label>Credit card revenue</label>
+        <label>Credit card</label>
         <input type="number" step="0.01" min="0" value={creditCardRevenue} onChange={(e) => setCreditCardRevenue(e.target.value)} placeholder="0.00" />
+      </div>
+      <div className="field">
+        <label>Coupon</label>
+        <input type="number" step="0.01" min="0" value={couponRevenue} onChange={(e) => setCouponRevenue(e.target.value)} placeholder="0.00" />
+      </div>
+      <div className="field">
+        <label>Charge back</label>
+        <input type="number" step="0.01" min="0" value={chargeBackRevenue} onChange={(e) => setChargeBackRevenue(e.target.value)} placeholder="0.00" />
       </div>
       <div className="field">
         <label>Other revenue</label>
@@ -853,6 +873,26 @@ function ShiftReportForm({ existing, onSaved, onCancel }) {
         <div className="field">
           <label>Other revenue — description</label>
           <input type="text" value={otherDescription} onChange={(e) => setOtherDescription(e.target.value)} placeholder="What is this from?" />
+        </div>
+      )}
+
+      {/* N/C and Loaner are $0 — shown as informational counts, not dollar inputs */}
+      {(ncTickets.length > 0 || loanerTickets.length > 0) && (
+        <div className="totals-grid" style={{ marginBottom: 12 }}>
+          {ncTickets.length > 0 && (
+            <div className="totals-cell">
+              <div className="label">N/C tickets</div>
+              <div className="value" style={{ fontSize: 18 }}>{ncTickets.length}</div>
+              <div className="field-hint" style={{ marginTop: 2 }}>No charge — not counted in revenue</div>
+            </div>
+          )}
+          {loanerTickets.length > 0 && (
+            <div className="totals-cell">
+              <div className="label">Loaner tickets</div>
+              <div className="value" style={{ fontSize: 18 }}>{loanerTickets.length}</div>
+              <div className="field-hint" style={{ marginTop: 2 }}>No charge — not counted in revenue</div>
+            </div>
+          )}
         </div>
       )}
 
