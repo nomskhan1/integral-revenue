@@ -944,6 +944,14 @@ function TicketHistoryView({ user, showGarageFilter }) {
         )}
       </div>
 
+      <DownloadTicketListButton
+        title="Ticket History"
+        dateLabel={fromDate || toDate ? `${fromDate || "Any"} to ${toDate || "Any"}` : "All dates"}
+        garageLabel={showGarageFilter ? (garages.find(g => g.id === garageFilter)?.name || "All garages") : undefined}
+        tickets={tickets}
+        showGarageColumn={showGarageFilter}
+      />
+
       {tickets.length === 0 ? (
         <div className="empty-state">
           <div className="big">No tickets match this search</div>
@@ -988,7 +996,10 @@ function DailyClosedView({ user, showGarageFilter }) {
   const [tickets, setTickets] = useState([]);
   const [garages, setGarages] = useState([]);
   const [error, setError] = useState("");
+  const [mode, setMode] = useState("single"); // "single" | "range"
   const [selectedDate, setSelectedDate] = useState(todayStr());
+  const [rangeFrom, setRangeFrom] = useState(todayStr());
+  const [rangeTo, setRangeTo] = useState(todayStr());
   const [garageFilter, setGarageFilter] = useState("");
   const [viewing, setViewing] = useState(null);
 
@@ -1007,15 +1018,20 @@ function DailyClosedView({ user, showGarageFilter }) {
   const load = useCallback(async () => {
     setError("");
     const params = new URLSearchParams();
-    params.set("from", selectedDate);
-    params.set("to", selectedDate);
+    if (mode === "single") {
+      params.set("from", selectedDate);
+      params.set("to", selectedDate);
+    } else {
+      params.set("from", rangeFrom);
+      params.set("to", rangeTo);
+    }
     params.set("status", "COMPLETED");
     if (showGarageFilter && garageFilter) params.set("garageId", garageFilter);
     const res = await fetch(`/api/tickets?${params.toString()}`);
     const data = await res.json();
     if (!res.ok) { setError(data.error); return; }
     setTickets(data);
-  }, [selectedDate, garageFilter, showGarageFilter]);
+  }, [mode, selectedDate, rangeFrom, rangeTo, garageFilter, showGarageFilter]);
 
   useEffect(() => { loadGarages(); }, [loadGarages]);
   useEffect(() => { load(); }, [load]);
@@ -1038,6 +1054,8 @@ function DailyClosedView({ user, showGarageFilter }) {
     d.setDate(d.getDate() + delta);
     setSelectedDate(d.toISOString().slice(0, 10));
   }
+
+  const reportLabel = mode === "single" ? selectedDate : `${rangeFrom} to ${rangeTo}`;
 
   if (viewing) {
     return (
@@ -1099,17 +1117,35 @@ function DailyClosedView({ user, showGarageFilter }) {
       </div>
       {error && <div className="error-box">{error}</div>}
 
-      <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
-        <button className="btn btn-ghost" style={{ width: "auto", padding: "13px 16px", marginTop: 0 }} onClick={() => shiftDay(-1)}>←</button>
-        <div className="field" style={{ flex: 1, marginBottom: 0 }}>
-          <label>Date</label>
-          <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} />
-        </div>
-        <button className="btn btn-ghost" style={{ width: "auto", padding: "13px 16px", marginTop: 0 }} onClick={() => shiftDay(1)}>→</button>
-        {selectedDate !== todayStr() && (
-          <button className="btn btn-ghost" style={{ width: "auto", padding: "13px 16px", marginTop: 0 }} onClick={() => setSelectedDate(todayStr())}>Today</button>
-        )}
+      <div className="tabs" style={{ marginBottom: 14 }}>
+        <button className={mode === "single" ? "active" : ""} onClick={() => setMode("single")}>Single day</button>
+        <button className={mode === "range" ? "active" : ""} onClick={() => setMode("range")}>Date range</button>
       </div>
+
+      {mode === "single" ? (
+        <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+          <button className="btn btn-ghost" style={{ width: "auto", padding: "13px 16px", marginTop: 0 }} onClick={() => shiftDay(-1)}>←</button>
+          <div className="field" style={{ flex: 1, marginBottom: 0 }}>
+            <label>Date</label>
+            <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} />
+          </div>
+          <button className="btn btn-ghost" style={{ width: "auto", padding: "13px 16px", marginTop: 0 }} onClick={() => shiftDay(1)}>→</button>
+          {selectedDate !== todayStr() && (
+            <button className="btn btn-ghost" style={{ width: "auto", padding: "13px 16px", marginTop: 0 }} onClick={() => setSelectedDate(todayStr())}>Today</button>
+          )}
+        </div>
+      ) : (
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <div className="field" style={{ flex: 1, minWidth: 140 }}>
+            <label>From</label>
+            <input type="date" value={rangeFrom} onChange={(e) => setRangeFrom(e.target.value)} />
+          </div>
+          <div className="field" style={{ flex: 1, minWidth: 140 }}>
+            <label>To</label>
+            <input type="date" value={rangeTo} onChange={(e) => setRangeTo(e.target.value)} />
+          </div>
+        </div>
+      )}
 
       {showGarageFilter && (
         <div className="field">
@@ -1123,7 +1159,7 @@ function DailyClosedView({ user, showGarageFilter }) {
 
       <div className="card">
         <div style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--brass-light)", marginBottom: 10 }}>
-          Totals for {selectedDate}
+          Totals for {reportLabel}
         </div>
         {tickets.length === 0 ? (
           <p style={{ fontSize: 13, color: "var(--slate2)" }}>No tickets closed on this date.</p>
@@ -1146,6 +1182,14 @@ function DailyClosedView({ user, showGarageFilter }) {
           </>
         )}
       </div>
+
+      <DownloadTicketListButton
+        title="Daily Closed Tickets"
+        dateLabel={reportLabel}
+        garageLabel={showGarageFilter ? (garages.find(g => g.id === garageFilter)?.name || "All garages") : undefined}
+        tickets={tickets}
+        showGarageColumn={showGarageFilter}
+      />
 
       {tickets.map((t) => (
         <div key={t.id} className="list-row" onClick={() => setViewing(t)} style={{ cursor: "pointer", display: "block" }}>
@@ -1548,6 +1592,115 @@ function PrintableShiftReport({ report }) {
         {report.submittedAt && <span>Submitted {new Date(report.submittedAt).toLocaleString()}</span>}
       </div>
     </div>
+  );
+}
+
+function PrintableTicketList({ title, dateLabel, garageLabel, tickets, showGarageColumn }) {
+  if (!tickets) return null;
+  const METHOD_LABELS = {
+    CASH: "Cash", CREDIT_CARD: "Credit Card", COUPON: "Coupon",
+    CHARGE_BACK: "Charge Back", NC: "N/C", LOANER: "Loaner",
+  };
+  const ZERO_FEE = new Set(["NC", "LOANER"]);
+
+  const totalsByMethod = {};
+  let grandTotal = 0;
+  tickets.forEach((t) => {
+    const key = t.paymentMethod || "OTHER";
+    if (ZERO_FEE.has(key)) {
+      totalsByMethod[key] = (totalsByMethod[key] || 0) + 1;
+    } else if (t.status === "COMPLETED") {
+      totalsByMethod[key] = (totalsByMethod[key] || 0) + (t.feeAmount || 0);
+      grandTotal += t.feeAmount || 0;
+    }
+  });
+
+  return (
+    <div className="print-report">
+      <div className="pr-header">
+        <div className="pr-title">Integral Revenue — {title}</div>
+        <div className="pr-meta">
+          {garageLabel && <span><b>Garage:</b> {garageLabel}</span>}
+          <span><b>Date range:</b> {dateLabel}</span>
+          <span><b>Total tickets:</b> {tickets.length}</span>
+        </div>
+      </div>
+
+      {Object.keys(totalsByMethod).length > 0 && (
+        <div className="pr-section">
+          <div className="pr-section-title">Totals by Category</div>
+          <div className="pr-grid">
+            {Object.entries(totalsByMethod).map(([method, value]) => (
+              <div key={method} className="pr-cell">
+                <div className="label">{METHOD_LABELS[method] || method}</div>
+                <div className="value">{ZERO_FEE.has(method) ? `${value} tickets` : money(value)}</div>
+              </div>
+            ))}
+          </div>
+          <div className="pr-net">Running Total: {money(grandTotal)}</div>
+        </div>
+      )}
+
+      <div className="pr-section">
+        <div className="pr-section-title">Ticket Detail</div>
+        <table className="pr-table">
+          <thead>
+            <tr>
+              <th>Ticket #</th>
+              {showGarageColumn && <th>Garage</th>}
+              <th>Unit</th>
+              <th>Vehicle</th>
+              <th>Check-In</th>
+              <th>Check-Out</th>
+              <th>Status</th>
+              <th>Payment</th>
+              <th>Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            {tickets.map((t) => (
+              <tr key={t.id}>
+                <td>#{t.ticketNumber}</td>
+                {showGarageColumn && <td>{t.garage?.name || "—"}</td>}
+                <td>{t.apartmentNumber || "—"}</td>
+                <td>{[t.vehicleColor, t.vehicleMake, t.vehicleModel].filter(Boolean).join(" ") || "—"}{t.licensePlate ? ` · ${t.licensePlate}` : ""}</td>
+                <td>{new Date(t.checkInTime).toLocaleString()}</td>
+                <td>{t.checkOutTime ? new Date(t.checkOutTime).toLocaleString() : "—"}</td>
+                <td>{t.status}</td>
+                <td>{METHOD_LABELS[t.paymentMethod] || t.paymentMethod || "—"}</td>
+                <td>{t.status === "COMPLETED" ? (ZERO_FEE.has(t.paymentMethod) ? "No charge" : money(t.feeAmount)) : "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="pr-footer">
+        <span>Integral Revenue Management</span>
+        <span>Printed {new Date().toLocaleString()}</span>
+      </div>
+    </div>
+  );
+}
+
+function DownloadTicketListButton({ title, dateLabel, garageLabel, tickets, showGarageColumn }) {
+  const [printing, setPrinting] = useState(false);
+
+  function handlePrint() {
+    setPrinting(true);
+    setTimeout(() => {
+      window.print();
+      setPrinting(false);
+    }, 150);
+  }
+
+  return (
+    <>
+      <button className="btn btn-ghost" onClick={handlePrint} disabled={printing || !tickets || tickets.length === 0}>
+        {printing ? "Preparing..." : "⬇ Download / Print Report"}
+      </button>
+      <PrintableTicketList title={title} dateLabel={dateLabel} garageLabel={garageLabel} tickets={tickets} showGarageColumn={showGarageColumn} />
+    </>
   );
 }
 
