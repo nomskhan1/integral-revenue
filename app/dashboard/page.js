@@ -773,7 +773,7 @@ function ActiveTicketsView() {
   );
 }
 
-function ShiftReportForm({ existing, onSaved, onCancel }) {
+function ShiftReportForm({ existing, onSaved, onCancel, readOnly }) {
   const [shiftDate, setShiftDate] = useState(existing?.shiftDate || todayStr());
   const [startTime, setStartTime] = useState(existing?.startTime || "");
   const [endTime, setEndTime] = useState(existing?.endTime || "");
@@ -789,9 +789,21 @@ function ShiftReportForm({ existing, onSaved, onCancel }) {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
-  // N/C and Loaner ticket counts come from already-linked tickets (read-only).
   const ncTickets = existing?.tickets?.filter(t => t.paymentMethod === "NC") || [];
   const loanerTickets = existing?.tickets?.filter(t => t.paymentMethod === "LOANER") || [];
+  const allTickets = existing?.tickets || [];
+
+  // Group tickets by payment method for the total processed section.
+  const ticketGroups = allTickets.reduce((acc, t) => {
+    const key = t.paymentMethod || "UNKNOWN";
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+
+  const METHOD_LABELS_SHORT = {
+    CASH: "Cash", CREDIT_CARD: "Credit Card", COUPON: "Coupon",
+    CHARGE_BACK: "Charge Back", NC: "N/C", LOANER: "Loaner",
+  };
 
   const cash = parseFloat(cashRevenue) || 0;
   const credit = parseFloat(creditCardRevenue) || 0;
@@ -799,9 +811,29 @@ function ShiftReportForm({ existing, onSaved, onCancel }) {
   const chargeBack = parseFloat(chargeBackRevenue) || 0;
   const other = parseFloat(otherRevenue) || 0;
   const adj = parseFloat(adjustments) || 0;
-  // N/C and Loaner are always $0 — excluded from gross.
   const gross = cash + credit + coupon + chargeBack + other;
   const net = gross - adj;
+
+  // A helper to render a revenue field — read-only display for employees,
+  // editable input for Garage Managers and Admins.
+  function RevenueField({ label, value, onChange, hint }) {
+    if (readOnly) {
+      return (
+        <div className="totals-cell" style={{ marginBottom: 10 }}>
+          <div className="label">{label}</div>
+          <div className="value" style={{ fontSize: 20 }}>{money(parseFloat(value) || 0)}</div>
+          {hint && <div className="field-hint">{hint}</div>}
+        </div>
+      );
+    }
+    return (
+      <div className="field">
+        <label>{label}</label>
+        <input type="number" step="0.01" min="0" value={value} onChange={e => onChange(e.target.value)} placeholder="0.00" />
+        {hint && <div className="field-hint">{hint}</div>}
+      </div>
+    );
+  }
 
   async function save(submit) {
     setError("");
@@ -830,18 +862,24 @@ function ShiftReportForm({ existing, onSaved, onCancel }) {
     <div className="card">
       {error && <div className="error-box">{error}</div>}
 
+      {readOnly && (
+        <div style={{ background: "rgba(201,162,39,0.1)", border: "1px solid var(--brass)", borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontSize: 13, color: "var(--brass-light)" }}>
+          Revenue totals are automatically calculated from ticket checkouts and cannot be manually edited.
+        </div>
+      )}
+
       <div className="field">
         <label>Shift date</label>
-        <input type="date" value={shiftDate} onChange={(e) => setShiftDate(e.target.value)} required />
+        <input type="date" value={shiftDate} onChange={(e) => setShiftDate(e.target.value)} required disabled={readOnly} />
       </div>
       <div style={{ display: "flex", gap: 10 }}>
         <div className="field" style={{ flex: 1 }}>
           <label>Start time</label>
-          <input type="text" placeholder="e.g. 7:00 AM" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
+          <input type="text" placeholder="e.g. 7:00 AM" value={startTime} onChange={(e) => setStartTime(e.target.value)} disabled={readOnly} />
         </div>
         <div className="field" style={{ flex: 1 }}>
           <label>End time</label>
-          <input type="text" placeholder="e.g. 3:00 PM" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
+          <input type="text" placeholder="e.g. 3:00 PM" value={endTime} onChange={(e) => setEndTime(e.target.value)} disabled={readOnly} />
         </div>
       </div>
 
@@ -849,36 +887,33 @@ function ShiftReportForm({ existing, onSaved, onCancel }) {
         Revenue by payment method
       </div>
 
-      <div className="field">
-        <label>Cash</label>
-        <input type="number" step="0.01" min="0" value={cashRevenue} onChange={(e) => setCashRevenue(e.target.value)} placeholder="0.00" />
-      </div>
-      <div className="field">
-        <label>Credit card</label>
-        <input type="number" step="0.01" min="0" value={creditCardRevenue} onChange={(e) => setCreditCardRevenue(e.target.value)} placeholder="0.00" />
-      </div>
-      <div className="field">
-        <label>Coupon</label>
-        <input type="number" step="0.01" min="0" value={couponRevenue} onChange={(e) => setCouponRevenue(e.target.value)} placeholder="0.00" />
-      </div>
-      <div className="field">
-        <label>Charge back</label>
-        <input type="number" step="0.01" min="0" value={chargeBackRevenue} onChange={(e) => setChargeBackRevenue(e.target.value)} placeholder="0.00" />
-      </div>
-      <div className="field">
-        <label>Other revenue</label>
-        <input type="number" step="0.01" min="0" value={otherRevenue} onChange={(e) => setOtherRevenue(e.target.value)} placeholder="0.00" />
-      </div>
-      {other !== 0 && (
-        <div className="field">
-          <label>Other revenue — description</label>
-          <input type="text" value={otherDescription} onChange={(e) => setOtherDescription(e.target.value)} placeholder="What is this from?" />
+      {readOnly ? (
+        <div className="totals-grid">
+          <RevenueField label="Cash" value={cashRevenue} onChange={setCashRevenue} />
+          <RevenueField label="Credit Card" value={creditCardRevenue} onChange={setCreditCardRevenue} />
+          {coupon > 0 && <RevenueField label="Coupon" value={couponRevenue} onChange={setCouponRevenue} />}
+          {chargeBack > 0 && <RevenueField label="Charge Back" value={chargeBackRevenue} onChange={setChargeBackRevenue} />}
+          {other > 0 && <RevenueField label="Other" value={otherRevenue} onChange={setOtherRevenue} />}
         </div>
+      ) : (
+        <>
+          <RevenueField label="Cash" value={cashRevenue} onChange={setCashRevenue} />
+          <RevenueField label="Credit Card" value={creditCardRevenue} onChange={setCreditCardRevenue} />
+          <RevenueField label="Coupon" value={couponRevenue} onChange={setCouponRevenue} />
+          <RevenueField label="Charge Back" value={chargeBackRevenue} onChange={setChargeBackRevenue} />
+          <RevenueField label="Other revenue" value={otherRevenue} onChange={setOtherRevenue} />
+          {other !== 0 && (
+            <div className="field">
+              <label>Other revenue — description</label>
+              <input type="text" value={otherDescription} onChange={(e) => setOtherDescription(e.target.value)} placeholder="What is this from?" />
+            </div>
+          )}
+        </>
       )}
 
-      {/* N/C and Loaner are $0 — shown as informational counts, not dollar inputs */}
+      {/* N/C and Loaner — count display only, never a dollar input */}
       {(ncTickets.length > 0 || loanerTickets.length > 0) && (
-        <div className="totals-grid" style={{ marginBottom: 12 }}>
+        <div className="totals-grid" style={{ marginBottom: 12, marginTop: readOnly ? 10 : 0 }}>
           {ncTickets.length > 0 && (
             <div className="totals-cell">
               <div className="label">N/C tickets</div>
@@ -896,16 +931,37 @@ function ShiftReportForm({ existing, onSaved, onCancel }) {
         </div>
       )}
 
-      <div className="field">
-        <label>Adjustments / discrepancies (subtracted from gross)</label>
-        <input type="number" step="0.01" min="0" value={adjustments} onChange={(e) => setAdjustments(e.target.value)} placeholder="0.00" />
-        <div className="field-hint">Use this for refunds, cash drawer shortages, or any correction to the gross total.</div>
-      </div>
-      {adj !== 0 && (
-        <div className="field">
-          <label>Adjustment note</label>
-          <input type="text" value={adjustmentsNote} onChange={(e) => setAdjustmentsNote(e.target.value)} placeholder="Reason for the adjustment" />
+      {/* Total processed tickets */}
+      {allTickets.length > 0 && (
+        <div style={{ marginBottom: 16, marginTop: 8 }}>
+          <div style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--brass-light)", marginBottom: 10 }}>
+            Total processed tickets — {allTickets.length}
+          </div>
+          <div className="totals-grid">
+            {Object.entries(ticketGroups).map(([method, count]) => (
+              <div key={method} className="totals-cell">
+                <div className="label">{METHOD_LABELS_SHORT[method] || method}</div>
+                <div className="value" style={{ fontSize: 18 }}>{count}</div>
+              </div>
+            ))}
+          </div>
         </div>
+      )}
+
+      {!readOnly && (
+        <>
+          <div className="field">
+            <label>Adjustments / discrepancies (subtracted from gross)</label>
+            <input type="number" step="0.01" min="0" value={adjustments} onChange={(e) => setAdjustments(e.target.value)} placeholder="0.00" />
+            <div className="field-hint">Use this for refunds, cash drawer shortages, or any correction to the gross total.</div>
+          </div>
+          {adj !== 0 && (
+            <div className="field">
+              <label>Adjustment note</label>
+              <input type="text" value={adjustmentsNote} onChange={(e) => setAdjustmentsNote(e.target.value)} placeholder="Reason for the adjustment" />
+            </div>
+          )}
+        </>
       )}
 
       <div className="totals-grid">
@@ -921,12 +977,14 @@ function ShiftReportForm({ existing, onSaved, onCancel }) {
 
       <div className="field" style={{ marginTop: 16 }}>
         <label>Notes (optional)</label>
-        <textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} />
+        <textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} disabled={readOnly} />
       </div>
 
-      <button className="btn btn-ghost" disabled={saving} onClick={() => save(false)}>
-        Save as draft
-      </button>
+      {!readOnly && (
+        <button className="btn btn-ghost" disabled={saving} onClick={() => save(false)}>
+          Save as draft
+        </button>
+      )}
       <button
         className="btn btn-primary"
         style={{ marginTop: 10 }}
@@ -1128,6 +1186,7 @@ function MyReportsView({ user }) {
         <h1 className="title">Shift Report</h1>
         <ShiftReportForm
           existing={editing}
+          readOnly={user.role === "EMPLOYEE"}
           onSaved={() => { setShowForm(false); setEditing(null); load(); }}
           onCancel={() => { setShowForm(false); setEditing(null); }}
         />
