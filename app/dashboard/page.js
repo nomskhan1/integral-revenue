@@ -1001,6 +1001,7 @@ function DailyClosedView({ user, showGarageFilter }) {
   const [rangeFrom, setRangeFrom] = useState(todayStr());
   const [rangeTo, setRangeTo] = useState(todayStr());
   const [garageFilter, setGarageFilter] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
   const [viewing, setViewing] = useState(null);
 
   const METHOD_LABELS = {
@@ -1036,11 +1037,19 @@ function DailyClosedView({ user, showGarageFilter }) {
   useEffect(() => { loadGarages(); }, [loadGarages]);
   useEffect(() => { load(); }, [load]);
 
+  // Apply the category filter client-side, on top of the server-side date/garage/status filters.
+  const filteredTickets = categoryFilter
+    ? tickets.filter((t) => (t.paymentMethod || "OTHER") === categoryFilter)
+    : tickets;
+
   // Running total broken down by category — N/C and Loaner are counted, not summed in dollars.
+  // Counts (of tickets) are tracked for every category, dollar totals only for the paid ones.
   const totalsByMethod = {};
+  const countsByMethod = {};
   let grandTotal = 0;
   tickets.forEach((t) => {
     const key = t.paymentMethod || "OTHER";
+    countsByMethod[key] = (countsByMethod[key] || 0) + 1;
     if (ZERO_FEE.has(key)) {
       totalsByMethod[key] = (totalsByMethod[key] || 0) + 1;
     } else {
@@ -1113,7 +1122,7 @@ function DailyClosedView({ user, showGarageFilter }) {
     <>
       <div className="queue-header">
         <h1 className="title" style={{ marginBottom: 2 }}>Daily Closed Tickets</h1>
-        <span className="count-badge">{tickets.length} tickets</span>
+        <span className="count-badge">{filteredTickets.length} tickets</span>
       </div>
       {error && <div className="error-box">{error}</div>}
 
@@ -1147,15 +1156,26 @@ function DailyClosedView({ user, showGarageFilter }) {
         </div>
       )}
 
-      {showGarageFilter && (
-        <div className="field">
-          <label>Garage</label>
-          <select value={garageFilter} onChange={(e) => setGarageFilter(e.target.value)}>
-            <option value="">All garages</option>
-            {garages.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        {showGarageFilter && (
+          <div className="field" style={{ flex: 1, minWidth: 140 }}>
+            <label>Garage</label>
+            <select value={garageFilter} onChange={(e) => setGarageFilter(e.target.value)}>
+              <option value="">All garages</option>
+              {garages.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+            </select>
+          </div>
+        )}
+        <div className="field" style={{ flex: 1, minWidth: 140 }}>
+          <label>Category</label>
+          <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+            <option value="">All categories</option>
+            {Object.keys(METHOD_LABELS).map((key) => (
+              <option key={key} value={key}>{METHOD_LABELS[key]}</option>
+            ))}
           </select>
         </div>
-      )}
+      </div>
 
       <div className="card">
         <div style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--brass-light)", marginBottom: 10 }}>
@@ -1172,12 +1192,16 @@ function DailyClosedView({ user, showGarageFilter }) {
                   <div className="value" style={{ fontSize: 18 }}>
                     {ZERO_FEE.has(method) ? `${value} tickets` : money(value)}
                   </div>
+                  {!ZERO_FEE.has(method) && (
+                    <div className="field-hint" style={{ marginTop: 2 }}>{countsByMethod[method]} ticket{countsByMethod[method] === 1 ? "" : "s"}</div>
+                  )}
                 </div>
               ))}
             </div>
             <div className="totals-cell" style={{ marginTop: 10 }}>
               <div className="label">Running Total</div>
               <div className="value" style={{ fontSize: 26 }}>{money(grandTotal)}</div>
+              <div className="field-hint" style={{ marginTop: 2 }}>{tickets.length} ticket{tickets.length === 1 ? "" : "s"} total</div>
             </div>
           </>
         )}
@@ -1187,32 +1211,38 @@ function DailyClosedView({ user, showGarageFilter }) {
         title="Daily Closed Tickets"
         dateLabel={reportLabel}
         garageLabel={showGarageFilter ? (garages.find(g => g.id === garageFilter)?.name || "All garages") : undefined}
-        tickets={tickets}
+        tickets={filteredTickets}
         showGarageColumn={showGarageFilter}
       />
 
-      {tickets.map((t) => (
-        <div key={t.id} className="list-row" onClick={() => setViewing(t)} style={{ cursor: "pointer", display: "block" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div>
-              <div style={{ fontWeight: 600 }}>
-                #{t.ticketNumber}
-                {showGarageFilter && <span style={{ fontSize: 12, color: "var(--slate2)", fontWeight: 400 }}> · {t.garage?.name}</span>}
+      {filteredTickets.length === 0 && tickets.length > 0 ? (
+        <div className="empty-state">
+          <div className="big">No tickets in this category</div>
+        </div>
+      ) : (
+        filteredTickets.map((t) => (
+          <div key={t.id} className="list-row" onClick={() => setViewing(t)} style={{ cursor: "pointer", display: "block" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <div style={{ fontWeight: 600 }}>
+                  #{t.ticketNumber}
+                  {showGarageFilter && <span style={{ fontSize: 12, color: "var(--slate2)", fontWeight: 400 }}> · {t.garage?.name}</span>}
+                </div>
+                <div style={{ fontSize: 12, color: "var(--slate2)" }}>
+                  {[t.vehicleColor, t.vehicleMake, t.vehicleModel].filter(Boolean).join(" ") || "No vehicle details"}
+                  {t.licensePlate ? ` · ${t.licensePlate}` : ""}
+                </div>
+                <div style={{ fontSize: 11, color: "var(--slate2)" }}>
+                  Closed {new Date(t.checkOutTime).toLocaleTimeString()} · {METHOD_LABELS[t.paymentMethod] || t.paymentMethod}
+                </div>
               </div>
-              <div style={{ fontSize: 12, color: "var(--slate2)" }}>
-                {[t.vehicleColor, t.vehicleMake, t.vehicleModel].filter(Boolean).join(" ") || "No vehicle details"}
-                {t.licensePlate ? ` · ${t.licensePlate}` : ""}
+              <div style={{ fontFamily: "Oswald, sans-serif", color: "var(--brass-light)", fontSize: 15 }}>
+                {ZERO_FEE.has(t.paymentMethod) ? "No charge" : money(t.feeAmount)}
               </div>
-              <div style={{ fontSize: 11, color: "var(--slate2)" }}>
-                Closed {new Date(t.checkOutTime).toLocaleTimeString()} · {METHOD_LABELS[t.paymentMethod] || t.paymentMethod}
-              </div>
-            </div>
-            <div style={{ fontFamily: "Oswald, sans-serif", color: "var(--brass-light)", fontSize: 15 }}>
-              {ZERO_FEE.has(t.paymentMethod) ? "No charge" : money(t.feeAmount)}
             </div>
           </div>
-        </div>
-      ))}
+        ))
+      )}
     </>
   );
 }
