@@ -82,11 +82,10 @@ model RateTier {
   label String?
 
   // The fee charged for any ticket whose duration falls into this tier.
-  // maxHours is the upper bound (inclusive) — e.g. maxHours=1 covers any
-  // stay up to and including 1 hour. The single tier with maxHours = null
-  // is the "anything beyond every other tier" catch-all and is always
-  // applied last, regardless of how many other tiers exist.
-  maxHours Int?
+  // maxHours is the upper bound — stored as a float to support fractional
+  // hours like 1.75 (= 1 hr 45 min). The tier with maxHours = null is the
+  // open-ended catch-all applied when no other tier matches.
+  maxHours Float?
   fee      Float
 
   createdAt DateTime @default(now())

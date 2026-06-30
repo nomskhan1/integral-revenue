@@ -9,7 +9,7 @@ async function GET(req, { params }) {
   try {
     const tiers = await prisma.rateTier.findMany({
       where: { garageId: id },
-      orderBy: [{ maxMinutes: "asc" }],
+      orderBy: [{ maxHours: "asc" }],
     });
     return new Response(JSON.stringify(tiers), { status: 200 });
   } catch (err) {
@@ -27,29 +27,29 @@ async function POST(req, { params }) {
   const { id } = params;
   try {
     const body = await req.json();
-    const { label, maxMinutes, fee } = body || {};
+    const { label, maxHours, fee } = body || {};
 
     if (fee === undefined || fee === null || isNaN(parseFloat(fee))) {
       return new Response(JSON.stringify({ error: "A fee amount is required." }), { status: 400 });
     }
 
-    const isOpenEnded = maxMinutes === null || maxMinutes === undefined;
-    const parsedMaxMinutes = isOpenEnded ? null : parseInt(maxMinutes, 10);
+    const isOpenEnded = maxHours === null || maxHours === undefined;
+    const parsedMaxHours = isOpenEnded ? null : parseFloat(maxHours);
 
-    if (!isOpenEnded && (isNaN(parsedMaxMinutes) || parsedMaxMinutes <= 0)) {
+    if (!isOpenEnded && (isNaN(parsedMaxHours) || parsedMaxHours <= 0)) {
       return new Response(JSON.stringify({ error: "Please enter a valid duration." }), { status: 400 });
     }
 
     if (isOpenEnded) {
-      const existingOpenEnded = await prisma.rateTier.findFirst({ where: { garageId: id, maxMinutes: null } });
-      if (existingOpenEnded) {
+      const existing = await prisma.rateTier.findFirst({ where: { garageId: id, maxHours: null } });
+      if (existing) {
         return new Response(
           JSON.stringify({ error: 'An open-ended ("anything beyond") tier already exists. Remove it first.' }),
           { status: 409 }
         );
       }
     } else {
-      const existing = await prisma.rateTier.findFirst({ where: { garageId: id, maxMinutes: parsedMaxMinutes } });
+      const existing = await prisma.rateTier.findFirst({ where: { garageId: id, maxHours: parsedMaxHours } });
       if (existing) {
         return new Response(JSON.stringify({ error: "A tier for that duration already exists." }), { status: 409 });
       }
@@ -59,7 +59,7 @@ async function POST(req, { params }) {
       data: {
         garageId: id,
         label: label || null,
-        maxMinutes: parsedMaxMinutes,
+        maxHours: parsedMaxHours,
         fee: parseFloat(fee),
       },
     });
