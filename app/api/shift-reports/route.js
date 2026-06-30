@@ -37,7 +37,7 @@ async function GET(req) {
       employee: { select: { id: true, name: true, username: true } },
       tickets: {
         where: { status: "COMPLETED" },
-        select: { id: true, ticketNumber: true, feeAmount: true, apartmentNumber: true, paymentMethod: true },
+        select: { id: true, ticketNumber: true, feeAmount: true, apartmentNumber: true, paymentMethod: true, licensePlate: true, vehicleMake: true, vehicleModel: true, vehicleColor: true, checkInTime: true, checkOutTime: true, durationMinutes: true },
         orderBy: { checkOutTime: "asc" },
       },
     },
@@ -49,7 +49,8 @@ async function GET(req) {
 }
 
 function calcTotals(cash, credit, coupon, chargeBack, nc, loaner, other, adjustments) {
-  const gross = (cash||0)+(credit||0)+(coupon||0)+(chargeBack||0)+(nc||0)+(loaner||0)+(other||0);
+  // NC and Loaner are $0 complimentary categories — excluded from gross revenue.
+  const gross = (cash||0)+(credit||0)+(coupon||0)+(chargeBack||0)+(other||0);
   const net = gross - (adjustments || 0);
   return { gross, net };
 }

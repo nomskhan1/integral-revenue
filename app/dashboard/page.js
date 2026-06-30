@@ -909,19 +909,100 @@ function ShiftReportForm({ existing, onSaved, onCancel }) {
 }
 
 // ---------------- REPORT SUMMARY ROW ----------------
+const METHOD_LABELS_DISPLAY = {
+  CASH: "Cash", CREDIT_CARD: "Credit Card", COUPON: "Coupon",
+  CHARGE_BACK: "Charge Back", NC: "N/C", LOANER: "Loaner",
+};
+
+// Zero-fee methods — shown as count only, not dollar amounts.
+const ZERO_FEE_METHODS = new Set(["NC", "LOANER"]);
+
 function TicketTransactionsList({ tickets }) {
+  const [activeTab, setActiveTab] = useState(null);
+
   if (!tickets || tickets.length === 0) return null;
+
+  // Group tickets by payment method.
+  const groups = {};
+  tickets.forEach((t) => {
+    const key = t.paymentMethod || "UNKNOWN";
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(t);
+  });
+
+  const groupKeys = Object.keys(groups);
+  const currentTab = activeTab || groupKeys[0];
+
   return (
-    <div style={{ marginTop: 14 }}>
-      <div style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--brass-light)", marginBottom: 8 }}>
+    <div style={{ marginTop: 16 }}>
+      <div style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--brass-light)", marginBottom: 10 }}>
         Ticket Transactions ({tickets.length})
       </div>
-      {tickets.map((t) => (
-        <div key={t.id} className="list-row" style={{ padding: "8px 0" }}>
-          <span>#{t.ticketNumber}{t.apartmentNumber ? ` · Unit ${t.apartmentNumber}` : ""}</span>
-          <span style={{ color: "var(--brass-light)" }}>{money(t.feeAmount)}</span>
-        </div>
-      ))}
+
+      {/* Category tabs */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+        {groupKeys.map((key) => {
+          const isZero = ZERO_FEE_METHODS.has(key);
+          const groupTotal = isZero ? null : groups[key].reduce((s, t) => s + (t.feeAmount || 0), 0);
+          return (
+            <button
+              key={key}
+              onClick={() => setActiveTab(key)}
+              style={{
+                padding: "6px 12px", borderRadius: 16, fontSize: 12, cursor: "pointer",
+                background: currentTab === key ? "var(--brass)" : "var(--navy-2)",
+                color: currentTab === key ? "var(--navy)" : "var(--cream)",
+                border: currentTab === key ? "none" : "1px solid var(--line)",
+                fontWeight: currentTab === key ? 700 : 400,
+              }}
+            >
+              {METHOD_LABELS_DISPLAY[key] || key}
+              {" "}
+              <span style={{ opacity: 0.8 }}>
+                {isZero ? `(${groups[key].length})` : money(groupTotal)}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Tickets in active tab */}
+      <div style={{ borderTop: "1px solid var(--line)" }}>
+        {groups[currentTab]?.map((t) => (
+          <div key={t.id} className="list-row" style={{ padding: "10px 0", display: "block" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <span style={{ fontWeight: 600, fontFamily: "Oswald, sans-serif", color: "var(--brass-light)" }}>
+                  #{t.ticketNumber}
+                </span>
+                {t.apartmentNumber && (
+                  <span style={{ fontSize: 12, color: "var(--slate2)", marginLeft: 8 }}>Unit {t.apartmentNumber}</span>
+                )}
+                {(t.vehicleMake || t.vehicleColor) && (
+                  <div style={{ fontSize: 12, color: "var(--slate2)" }}>
+                    {[t.vehicleColor, t.vehicleMake, t.vehicleModel].filter(Boolean).join(" ")}
+                    {t.licensePlate ? ` · ${t.licensePlate}` : ""}
+                  </div>
+                )}
+                {t.durationMinutes && (
+                  <div style={{ fontSize: 11, color: "var(--slate2)" }}>
+                    {Math.floor(t.durationMinutes / 60)}h {t.durationMinutes % 60}m
+                  </div>
+                )}
+              </div>
+              <div style={{ textAlign: "right" }}>
+                {ZERO_FEE_METHODS.has(currentTab) ? (
+                  <span style={{ fontSize: 13, color: "var(--slate2)", fontStyle: "italic" }}>No charge</span>
+                ) : (
+                  <span style={{ color: "var(--brass-light)", fontFamily: "Oswald, sans-serif", fontSize: 16 }}>
+                    {money(t.feeAmount)}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -975,8 +1056,12 @@ function MyReportsView({ user }) {
             <div className="totals-cell"><div className="label">Credit Card</div><div className="value">{money(viewing.creditCardRevenue)}</div></div>
             {(viewing.couponRevenue > 0) && <div className="totals-cell"><div className="label">Coupon</div><div className="value">{money(viewing.couponRevenue)}</div></div>}
             {(viewing.chargeBackRevenue > 0) && <div className="totals-cell"><div className="label">Charge Back</div><div className="value">{money(viewing.chargeBackRevenue)}</div></div>}
-            {(viewing.ncRevenue > 0) && <div className="totals-cell"><div className="label">N/C</div><div className="value">{money(viewing.ncRevenue)}</div></div>}
-            {(viewing.loanerRevenue > 0) && <div className="totals-cell"><div className="label">Loaner</div><div className="value">{money(viewing.loanerRevenue)}</div></div>}
+            {viewing.tickets?.filter(t => t.paymentMethod === "NC").length > 0 && (
+              <div className="totals-cell"><div className="label">N/C</div><div className="value" style={{fontSize:16}}>{viewing.tickets.filter(t=>t.paymentMethod==="NC").length} tickets</div></div>
+            )}
+            {viewing.tickets?.filter(t => t.paymentMethod === "LOANER").length > 0 && (
+              <div className="totals-cell"><div className="label">Loaner</div><div className="value" style={{fontSize:16}}>{viewing.tickets.filter(t=>t.paymentMethod==="LOANER").length} tickets</div></div>
+            )}
             <div className="totals-cell"><div className="label">Other</div><div className="value">{money(viewing.otherRevenue)}</div></div>
             <div className="totals-cell"><div className="label">Adjustments</div><div className="value">{money(viewing.adjustments)}</div></div>
             <div className="totals-cell"><div className="label">Gross total</div><div className="value">{money(viewing.grossTotal)}</div></div>
@@ -1066,8 +1151,12 @@ function GarageReportsView({ user }) {
             <div className="totals-cell"><div className="label">Credit Card</div><div className="value">{money(viewing.creditCardRevenue)}</div></div>
             {(viewing.couponRevenue > 0) && <div className="totals-cell"><div className="label">Coupon</div><div className="value">{money(viewing.couponRevenue)}</div></div>}
             {(viewing.chargeBackRevenue > 0) && <div className="totals-cell"><div className="label">Charge Back</div><div className="value">{money(viewing.chargeBackRevenue)}</div></div>}
-            {(viewing.ncRevenue > 0) && <div className="totals-cell"><div className="label">N/C</div><div className="value">{money(viewing.ncRevenue)}</div></div>}
-            {(viewing.loanerRevenue > 0) && <div className="totals-cell"><div className="label">Loaner</div><div className="value">{money(viewing.loanerRevenue)}</div></div>}
+            {viewing.tickets?.filter(t => t.paymentMethod === "NC").length > 0 && (
+              <div className="totals-cell"><div className="label">N/C</div><div className="value" style={{fontSize:16}}>{viewing.tickets.filter(t=>t.paymentMethod==="NC").length} tickets</div></div>
+            )}
+            {viewing.tickets?.filter(t => t.paymentMethod === "LOANER").length > 0 && (
+              <div className="totals-cell"><div className="label">Loaner</div><div className="value" style={{fontSize:16}}>{viewing.tickets.filter(t=>t.paymentMethod==="LOANER").length} tickets</div></div>
+            )}
             <div className="totals-cell"><div className="label">Other</div><div className="value">{money(viewing.otherRevenue)}</div></div>
             <div className="totals-cell"><div className="label">Adjustments</div><div className="value">{money(viewing.adjustments)}</div></div>
             <div className="totals-cell"><div className="label">Gross total</div><div className="value">{money(viewing.grossTotal)}</div></div>
@@ -1132,21 +1221,28 @@ function RevenueDashboard({ user }) {
 
   const totals = reports.reduce(
     (acc, r) => ({
-      cash: acc.cash + r.cashRevenue,
-      credit: acc.credit + r.creditCardRevenue,
-      other: acc.other + r.otherRevenue,
+      cash: acc.cash + (r.cashRevenue || 0),
+      credit: acc.credit + (r.creditCardRevenue || 0),
+      coupon: acc.coupon + (r.couponRevenue || 0),
+      chargeBack: acc.chargeBack + (r.chargeBackRevenue || 0),
+      other: acc.other + (r.otherRevenue || 0),
       gross: acc.gross + r.grossTotal,
       net: acc.net + r.netTotal,
+      ncCount: acc.ncCount + (r.tickets?.filter(t => t.paymentMethod === "NC").length || 0),
+      loanerCount: acc.loanerCount + (r.tickets?.filter(t => t.paymentMethod === "LOANER").length || 0),
     }),
-    { cash: 0, credit: 0, other: 0, gross: 0, net: 0 }
+    { cash: 0, credit: 0, coupon: 0, chargeBack: 0, other: 0, gross: 0, net: 0, ncCount: 0, loanerCount: 0 }
   );
 
   function exportCsv() {
     const rows = [
-      ["Date", "Garage", "Employee", "Status", "Cash", "Credit Card", "Other", "Adjustments", "Gross", "Net"],
+      ["Date", "Garage", "Employee", "Status", "Cash", "Credit Card", "Coupon", "Charge Back", "Other", "Adjustments", "Gross", "Net", "N/C Count", "Loaner Count"],
       ...reports.map((r) => [
         r.shiftDate, r.garage?.name || "", r.employee?.name || "", r.status,
-        r.cashRevenue, r.creditCardRevenue, r.otherRevenue, r.adjustments, r.grossTotal, r.netTotal,
+        r.cashRevenue, r.creditCardRevenue, r.couponRevenue || 0, r.chargeBackRevenue || 0,
+        r.otherRevenue, r.adjustments, r.grossTotal, r.netTotal,
+        r.tickets?.filter(t => t.paymentMethod === "NC").length || 0,
+        r.tickets?.filter(t => t.paymentMethod === "LOANER").length || 0,
       ]),
     ];
     const csv = rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n");
@@ -1170,8 +1266,12 @@ function RevenueDashboard({ user }) {
             <div className="totals-cell"><div className="label">Credit Card</div><div className="value">{money(viewing.creditCardRevenue)}</div></div>
             {(viewing.couponRevenue > 0) && <div className="totals-cell"><div className="label">Coupon</div><div className="value">{money(viewing.couponRevenue)}</div></div>}
             {(viewing.chargeBackRevenue > 0) && <div className="totals-cell"><div className="label">Charge Back</div><div className="value">{money(viewing.chargeBackRevenue)}</div></div>}
-            {(viewing.ncRevenue > 0) && <div className="totals-cell"><div className="label">N/C</div><div className="value">{money(viewing.ncRevenue)}</div></div>}
-            {(viewing.loanerRevenue > 0) && <div className="totals-cell"><div className="label">Loaner</div><div className="value">{money(viewing.loanerRevenue)}</div></div>}
+            {viewing.tickets?.filter(t => t.paymentMethod === "NC").length > 0 && (
+              <div className="totals-cell"><div className="label">N/C</div><div className="value" style={{fontSize:16}}>{viewing.tickets.filter(t=>t.paymentMethod==="NC").length} tickets</div></div>
+            )}
+            {viewing.tickets?.filter(t => t.paymentMethod === "LOANER").length > 0 && (
+              <div className="totals-cell"><div className="label">Loaner</div><div className="value" style={{fontSize:16}}>{viewing.tickets.filter(t=>t.paymentMethod==="LOANER").length} tickets</div></div>
+            )}
             <div className="totals-cell"><div className="label">Other</div><div className="value">{money(viewing.otherRevenue)}</div></div>
             <div className="totals-cell"><div className="label">Adjustments</div><div className="value">{money(viewing.adjustments)}</div></div>
             <div className="totals-cell"><div className="label">Gross total</div><div className="value">{money(viewing.grossTotal)}</div></div>
@@ -1225,8 +1325,12 @@ function RevenueDashboard({ user }) {
         </div>
         <div className="totals-grid">
           <div className="totals-cell"><div className="label">Cash</div><div className="value">{money(totals.cash)}</div></div>
-          <div className="totals-cell"><div className="label">Credit card</div><div className="value">{money(totals.credit)}</div></div>
-          <div className="totals-cell"><div className="label">Other</div><div className="value">{money(totals.other)}</div></div>
+          <div className="totals-cell"><div className="label">Credit Card</div><div className="value">{money(totals.credit)}</div></div>
+          {totals.coupon > 0 && <div className="totals-cell"><div className="label">Coupon</div><div className="value">{money(totals.coupon)}</div></div>}
+          {totals.chargeBack > 0 && <div className="totals-cell"><div className="label">Charge Back</div><div className="value">{money(totals.chargeBack)}</div></div>}
+          {totals.other > 0 && <div className="totals-cell"><div className="label">Other</div><div className="value">{money(totals.other)}</div></div>}
+          {totals.ncCount > 0 && <div className="totals-cell"><div className="label">N/C</div><div className="value" style={{fontSize:16}}>{totals.ncCount} tickets</div></div>}
+          {totals.loanerCount > 0 && <div className="totals-cell"><div className="label">Loaner</div><div className="value" style={{fontSize:16}}>{totals.loanerCount} tickets</div></div>}
           <div className="totals-cell"><div className="label">Gross</div><div className="value">{money(totals.gross)}</div></div>
         </div>
         <div className="totals-cell" style={{ marginTop: 10 }}>

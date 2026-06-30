@@ -2,7 +2,8 @@ const prisma = require("../../../../lib/db");
 const { getSessionFromRequest } = require("../../../../lib/auth");
 
 function calcTotals(cash, credit, coupon, chargeBack, nc, loaner, other, adjustments) {
-  const gross = (cash||0)+(credit||0)+(coupon||0)+(chargeBack||0)+(nc||0)+(loaner||0)+(other||0);
+  // NC and Loaner are $0 complimentary categories — excluded from gross revenue.
+  const gross = (cash||0)+(credit||0)+(coupon||0)+(chargeBack||0)+(other||0);
   const net = gross - (adjustments || 0);
   return { gross, net };
 }
