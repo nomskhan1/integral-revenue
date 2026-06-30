@@ -84,6 +84,11 @@ export default function Dashboard() {
                 Garage Reports
               </button>
             )}
+            {user.role === "GARAGE_MANAGER" && (
+              <button className={tab === "ticket-history" ? "active" : ""} onClick={() => setTab("ticket-history")}>
+                Ticket History
+              </button>
+            )}
           </div>
         )}
 
@@ -97,6 +102,9 @@ export default function Dashboard() {
             </button>
             <button className={tab === "users" ? "active" : ""} onClick={() => setTab("users")}>
               Users
+            </button>
+            <button className={tab === "ticket-history" ? "active" : ""} onClick={() => setTab("ticket-history")}>
+              Ticket History
             </button>
           </div>
         )}
@@ -120,6 +128,7 @@ export default function Dashboard() {
         )}
         {tab === "employees" && user.role === "GARAGE_MANAGER" && <UsersView currentUser={user} />}
         {tab === "garage-reports" && user.role === "GARAGE_MANAGER" && <GarageReportsView user={user} />}
+        {tab === "ticket-history" && (user.role === "GARAGE_MANAGER" || isAdmin) && <TicketHistoryView user={user} showGarageFilter={isAdmin} />}
         {tab === "revenue" && isAdmin && <RevenueDashboard user={user} />}
         {tab === "garages" && (isAdmin || isSuperAdmin) && <GaragesView currentUser={user} />}
         {tab === "users" && (isAdmin || isSuperAdmin) && <UsersView currentUser={user} />}
@@ -773,7 +782,197 @@ function ActiveTicketsView() {
   );
 }
 
-function ShiftReportForm({ existing, onSaved, onCancel, readOnly }) {
+// ---------------- TICKET HISTORY (Garage Manager / Admin) ----------------
+function TicketHistoryView({ user, showGarageFilter }) {
+  const [tickets, setTickets] = useState([]);
+  const [garages, setGarages] = useState([]);
+  const [error, setError] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [garageFilter, setGarageFilter] = useState("");
+  const [viewing, setViewing] = useState(null);
+
+  const loadGarages = useCallback(async () => {
+    if (!showGarageFilter) return;
+    const res = await fetch("/api/garages");
+    if (res.ok) setGarages(await res.json());
+  }, [showGarageFilter]);
+
+  const load = useCallback(async () => {
+    setError("");
+    const params = new URLSearchParams();
+    if (fromDate) params.set("from", fromDate);
+    if (toDate) params.set("to", toDate);
+    if (search.trim()) params.set("search", search.trim());
+    if (statusFilter) params.set("status", statusFilter);
+    if (showGarageFilter && garageFilter) params.set("garageId", garageFilter);
+    const res = await fetch(`/api/tickets?${params.toString()}`);
+    const data = await res.json();
+    if (!res.ok) { setError(data.error); return; }
+    setTickets(data);
+  }, [fromDate, toDate, search, statusFilter, garageFilter, showGarageFilter]);
+
+  useEffect(() => { loadGarages(); }, [loadGarages]);
+  useEffect(() => { load(); }, [load]);
+
+  const STATUS_LABELS = { PARKED: "Parked", COMPLETED: "Completed", CANCELLED: "Cancelled" };
+  const METHOD_LABELS = {
+    CASH: "Cash", CREDIT_CARD: "Credit Card", COUPON: "Coupon",
+    CHARGE_BACK: "Charge Back", NC: "N/C", LOANER: "Loaner",
+  };
+
+  if (viewing) {
+    return (
+      <>
+        <div className="hero-line">Ticket #{viewing.ticketNumber}</div>
+        <h1 className="title">{viewing.garage?.name}</h1>
+        <div className="card">
+          {viewing.photoUrl && (
+            <img src={viewing.photoUrl} alt="Vehicle" style={{ width: "100%", borderRadius: 8, marginBottom: 14, maxHeight: 220, objectFit: "cover" }} />
+          )}
+          <div className="list-row" style={{ borderBottom: "none", padding: "4px 0" }}>
+            <span style={{ color: "var(--slate2)" }}>Status</span>
+            <span className={`status-tag status-${viewing.status === "COMPLETED" ? "SUBMITTED" : "DRAFT"}`}>
+              {STATUS_LABELS[viewing.status]}
+            </span>
+          </div>
+          <div className="list-row" style={{ borderBottom: "none", padding: "4px 0" }}>
+            <span style={{ color: "var(--slate2)" }}>Checked in</span>
+            <span>{new Date(viewing.checkInTime).toLocaleString()}</span>
+          </div>
+          {viewing.checkOutTime && (
+            <div className="list-row" style={{ borderBottom: "none", padding: "4px 0" }}>
+              <span style={{ color: "var(--slate2)" }}>Checked out</span>
+              <span>{new Date(viewing.checkOutTime).toLocaleString()}</span>
+            </div>
+          )}
+          {viewing.apartmentNumber && (
+            <div className="list-row" style={{ borderBottom: "none", padding: "4px 0" }}>
+              <span style={{ color: "var(--slate2)" }}>Unit</span><span>{viewing.apartmentNumber}</span>
+            </div>
+          )}
+          {(viewing.vehicleMake || viewing.licensePlate) && (
+            <div className="list-row" style={{ borderBottom: "none", padding: "4px 0" }}>
+              <span style={{ color: "var(--slate2)" }}>Vehicle</span>
+              <span>{[viewing.vehicleColor, viewing.vehicleMake, viewing.vehicleModel].filter(Boolean).join(" ")}{viewing.licensePlate ? ` · ${viewing.licensePlate}` : ""}</span>
+            </div>
+          )}
+          {viewing.parkingLocation && (
+            <div className="list-row" style={{ borderBottom: "none", padding: "4px 0" }}>
+              <span style={{ color: "var(--slate2)" }}>Location</span><span>{viewing.parkingLocation}</span>
+            </div>
+          )}
+          {viewing.checkedInBy && (
+            <div className="list-row" style={{ borderBottom: "none", padding: "4px 0" }}>
+              <span style={{ color: "var(--slate2)" }}>Checked in by</span><span>{viewing.checkedInBy.name}</span>
+            </div>
+          )}
+          {viewing.checkedOutBy && (
+            <div className="list-row" style={{ borderBottom: "none", padding: "4px 0" }}>
+              <span style={{ color: "var(--slate2)" }}>Checked out by</span><span>{viewing.checkedOutBy.name}</span>
+            </div>
+          )}
+          {viewing.status === "COMPLETED" && (
+            <div className="totals-grid" style={{ marginTop: 12 }}>
+              <div className="totals-cell"><div className="label">Duration</div><div className="value" style={{ fontSize: 16 }}>{viewing.durationMinutes ? `${Math.floor(viewing.durationMinutes/60)}h ${viewing.durationMinutes%60}m` : "—"}</div></div>
+              <div className="totals-cell"><div className="label">Payment</div><div className="value" style={{ fontSize: 16 }}>{METHOD_LABELS[viewing.paymentMethod] || viewing.paymentMethod}</div></div>
+              <div className="totals-cell"><div className="label">Amount</div><div className="value">{["NC","LOANER"].includes(viewing.paymentMethod) ? "No charge" : money(viewing.feeAmount)}</div></div>
+            </div>
+          )}
+          {viewing.paymentNote && (
+            <p style={{ marginTop: 10, fontSize: 13, color: "var(--slate2)" }}>Note: {viewing.paymentNote}</p>
+          )}
+        </div>
+        <button className="btn btn-ghost" onClick={() => setViewing(null)}>Back</button>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <div className="queue-header">
+        <h1 className="title" style={{ marginBottom: 2 }}>Ticket History</h1>
+        <span className="count-badge">{tickets.length} tickets</span>
+      </div>
+      {error && <div className="error-box">{error}</div>}
+
+      <div className="field">
+        <label>Search — ticket #, plate, unit, make, or model</label>
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="e.g. 42 or 8XJ-201" />
+      </div>
+
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <div className="field" style={{ flex: 1, minWidth: 140 }}>
+          <label>From</label>
+          <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+        </div>
+        <div className="field" style={{ flex: 1, minWidth: 140 }}>
+          <label>To</label>
+          <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+        </div>
+      </div>
+
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <div className="field" style={{ flex: 1, minWidth: 140 }}>
+          <label>Status</label>
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+            <option value="">All statuses</option>
+            <option value="PARKED">Parked</option>
+            <option value="COMPLETED">Completed</option>
+            <option value="CANCELLED">Cancelled</option>
+          </select>
+        </div>
+        {showGarageFilter && (
+          <div className="field" style={{ flex: 1, minWidth: 140 }}>
+            <label>Garage</label>
+            <select value={garageFilter} onChange={(e) => setGarageFilter(e.target.value)}>
+              <option value="">All garages</option>
+              {garages.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+            </select>
+          </div>
+        )}
+      </div>
+
+      {tickets.length === 0 ? (
+        <div className="empty-state">
+          <div className="big">No tickets match this search</div>
+        </div>
+      ) : (
+        tickets.map((t) => (
+          <div key={t.id} className="list-row" onClick={() => setViewing(t)} style={{ cursor: "pointer", display: "block" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <div style={{ fontWeight: 600 }}>
+                  #{t.ticketNumber}
+                  {showGarageFilter && <span style={{ fontSize: 12, color: "var(--slate2)", fontWeight: 400 }}> · {t.garage?.name}</span>}
+                </div>
+                <div style={{ fontSize: 12, color: "var(--slate2)" }}>
+                  {[t.vehicleColor, t.vehicleMake, t.vehicleModel].filter(Boolean).join(" ") || "No vehicle details"}
+                  {t.licensePlate ? ` · ${t.licensePlate}` : ""}
+                </div>
+                <div style={{ fontSize: 11, color: "var(--slate2)" }}>
+                  {new Date(t.checkInTime).toLocaleString()}
+                </div>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                {t.status === "COMPLETED" && (
+                  <div style={{ fontFamily: "Oswald, sans-serif", color: "var(--brass-light)", fontSize: 15 }}>
+                    {["NC","LOANER"].includes(t.paymentMethod) ? "No charge" : money(t.feeAmount)}
+                  </div>
+                )}
+                <span className={`status-tag status-${t.status === "COMPLETED" ? "SUBMITTED" : "DRAFT"}`} style={t.status === "CANCELLED" ? { borderColor: "var(--red)", color: "var(--red)" } : {}}>
+                  {STATUS_LABELS[t.status]}
+                </span>
+              </div>
+            </div>
+          </div>
+        ))
+      )}
+    </>
+  );
+}
   const [shiftDate, setShiftDate] = useState(existing?.shiftDate || todayStr());
   const [startTime, setStartTime] = useState(existing?.startTime || "");
   const [endTime, setEndTime] = useState(existing?.endTime || "");

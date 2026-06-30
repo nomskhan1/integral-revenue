@@ -15,6 +15,9 @@ async function GET(req) {
   const url = new URL(req.url);
   const status = url.searchParams.get("status"); // e.g. "PARKED"
   const garageIdParam = url.searchParams.get("garageId");
+  const from = url.searchParams.get("from"); // YYYY-MM-DD
+  const to = url.searchParams.get("to");
+  const search = url.searchParams.get("search"); // ticket #, plate, or unit
 
   let where = {};
   if (session.role === "EMPLOYEE" || session.role === "GARAGE_MANAGER") {
@@ -23,6 +26,22 @@ async function GET(req) {
     where.garageId = garageIdParam;
   }
   if (status) where.status = status;
+
+  if (from || to) {
+    where.checkInTime = {};
+    if (from) where.checkInTime.gte = new Date(`${from}T00:00:00`);
+    if (to) where.checkInTime.lte = new Date(`${to}T23:59:59`);
+  }
+
+  if (search) {
+    where.OR = [
+      { ticketNumber: { contains: search, mode: "insensitive" } },
+      { licensePlate: { contains: search, mode: "insensitive" } },
+      { apartmentNumber: { contains: search, mode: "insensitive" } },
+      { vehicleMake: { contains: search, mode: "insensitive" } },
+      { vehicleModel: { contains: search, mode: "insensitive" } },
+    ];
+  }
 
   const tickets = await prisma.ticket.findMany({
     where,
