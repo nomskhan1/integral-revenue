@@ -25,6 +25,25 @@ body.native-app .shell{ max-width:100%; padding-left:env(safe-area-inset-left); 
 body.native-app header.topbar{ padding-top:calc(18px + env(safe-area-inset-top)); }
 body.native-app footer.note{ padding-bottom:calc(14px + env(safe-area-inset-bottom)); }
 
+/* On larger screens, give the layout more breathing room instead of a
+   narrow centered column with empty space on both sides. Form fields and
+   text still stay comfortably readable — only the overall canvas widens. */
+@media (min-width: 700px){
+  .shell{ max-width:680px; }
+}
+@media (min-width: 1000px){
+  .shell{ max-width:880px; }
+  main{ padding-left:40px; padding-right:40px; }
+  /* Let grids (totals, stat cards) use more columns when there's room. */
+  .totals-grid{ grid-template-columns:repeat(3, 1fr); }
+  /* Cap individual text inputs so they stay comfortably readable instead
+     of stretching to the full width of a wide desktop column. */
+  .field input:not([type="date"]), .field select, .field textarea{ max-width:520px; }
+}
+@media (min-width: 1300px){
+  .shell{ max-width:1080px; }
+}
+
 header.topbar{
   display:flex; align-items:center; justify-content:space-between;
   padding:18px 20px 14px; border-bottom:1px solid var(--line);
