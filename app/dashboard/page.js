@@ -1932,7 +1932,7 @@ function MyReportsView({ user }) {
         <h1 className="title">Shift Report</h1>
         <ShiftReportForm
           existing={editing}
-          readOnly={user.role === "EMPLOYEE"}
+          readOnly={user.role === "EMPLOYEE" || user.role === "GARAGE_MANAGER"}
           onSaved={() => { setShowForm(false); setEditing(null); load(); }}
           onCancel={() => { setShowForm(false); setEditing(null); }}
         />

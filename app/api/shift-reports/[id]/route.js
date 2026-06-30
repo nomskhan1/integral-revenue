@@ -32,14 +32,20 @@ async function PATCH(req, { params }) {
     chargeBackRevenue, ncRevenue, loanerRevenue, otherRevenue, otherDescription,
     adjustments, adjustmentsNote, notes, submit } = body || {};
 
-  const cash = cashRevenue !== undefined ? parseFloat(cashRevenue)||0 : report.cashRevenue;
-  const credit = creditCardRevenue !== undefined ? parseFloat(creditCardRevenue)||0 : report.creditCardRevenue;
-  const coupon = couponRevenue !== undefined ? parseFloat(couponRevenue)||0 : (report.couponRevenue||0);
-  const chargeBack = chargeBackRevenue !== undefined ? parseFloat(chargeBackRevenue)||0 : (report.chargeBackRevenue||0);
-  const nc = ncRevenue !== undefined ? parseFloat(ncRevenue)||0 : (report.ncRevenue||0);
-  const loaner = loanerRevenue !== undefined ? parseFloat(loanerRevenue)||0 : (report.loanerRevenue||0);
-  const other = otherRevenue !== undefined ? parseFloat(otherRevenue)||0 : report.otherRevenue;
-  const adj = adjustments !== undefined ? parseFloat(adjustments)||0 : report.adjustments;
+  // Revenue totals are calculated automatically from ticket checkouts.
+  // Only Admin/Super Admin can manually override them (e.g. to fix a
+  // genuine data-entry mistake) — Employees and Garage Managers can only
+  // change the shift date/times and notes, then submit.
+  const canEditRevenue = isAdmin;
+
+  const cash = canEditRevenue && cashRevenue !== undefined ? parseFloat(cashRevenue)||0 : report.cashRevenue;
+  const credit = canEditRevenue && creditCardRevenue !== undefined ? parseFloat(creditCardRevenue)||0 : report.creditCardRevenue;
+  const coupon = canEditRevenue && couponRevenue !== undefined ? parseFloat(couponRevenue)||0 : (report.couponRevenue||0);
+  const chargeBack = canEditRevenue && chargeBackRevenue !== undefined ? parseFloat(chargeBackRevenue)||0 : (report.chargeBackRevenue||0);
+  const nc = canEditRevenue && ncRevenue !== undefined ? parseFloat(ncRevenue)||0 : (report.ncRevenue||0);
+  const loaner = canEditRevenue && loanerRevenue !== undefined ? parseFloat(loanerRevenue)||0 : (report.loanerRevenue||0);
+  const other = canEditRevenue && otherRevenue !== undefined ? parseFloat(otherRevenue)||0 : report.otherRevenue;
+  const adj = canEditRevenue && adjustments !== undefined ? parseFloat(adjustments)||0 : report.adjustments;
   const { gross, net } = calcTotals(cash, credit, coupon, chargeBack, nc, loaner, other, adj);
 
   const data = {
@@ -50,8 +56,8 @@ async function PATCH(req, { params }) {
   if (shiftDate !== undefined) data.shiftDate = shiftDate;
   if (startTime !== undefined) data.startTime = startTime || null;
   if (endTime !== undefined) data.endTime = endTime || null;
-  if (otherDescription !== undefined) data.otherDescription = otherDescription || null;
-  if (adjustmentsNote !== undefined) data.adjustmentsNote = adjustmentsNote || null;
+  if (canEditRevenue && otherDescription !== undefined) data.otherDescription = otherDescription || null;
+  if (canEditRevenue && adjustmentsNote !== undefined) data.adjustmentsNote = adjustmentsNote || null;
   if (notes !== undefined) data.notes = notes || null;
   if (submit && report.status !== "SUBMITTED") {
     data.status = "SUBMITTED";
