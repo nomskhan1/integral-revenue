@@ -2453,15 +2453,20 @@ function GaragesView({ currentUser }) {
     setTiersError("");
     const parsed = parseHoursMinutesInput(tierMaxMinutes);
     if (parsed.error) { setTiersError(parsed.error); return; }
-    const res = await fetch(`/api/garages/${tiersGarageId}/rate-tiers`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ label: tierLabel, maxMinutes: parsed.minutes, fee: tierFee }),
-    });
-    const data = await res.json();
-    if (!res.ok) { setTiersError(data.error); return; }
-    setTierMaxMinutes(""); setTierFee(""); setTierLabel("");
-    loadTiers(tiersGarageId);
+    try {
+      const res = await fetch(`/api/garages/${tiersGarageId}/rate-tiers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label: tierLabel, maxMinutes: parsed.minutes, fee: tierFee }),
+      });
+      let data;
+      try { data = await res.json(); } catch { data = {}; }
+      if (!res.ok) { setTiersError(data.error || `Server error ${res.status}`); return; }
+      setTierMaxMinutes(""); setTierFee(""); setTierLabel("");
+      loadTiers(tiersGarageId);
+    } catch (err) {
+      setTiersError("Network error: " + err.message);
+    }
   }
 
   async function removeTier(tierId) {
