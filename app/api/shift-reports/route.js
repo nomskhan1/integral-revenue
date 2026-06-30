@@ -5,8 +5,6 @@ async function GET(req) {
   const session = getSessionFromRequest(req);
   if (!session) return new Response(JSON.stringify({ error: "Not signed in." }), { status: 401 });
 
-  // Super Admin is scoped to creating Admins and managing garages only —
-  // they don't see revenue or shift report data at all.
   if (session.role === "SUPER_ADMIN") {
     return new Response(JSON.stringify({ error: "Not allowed." }), { status: 403 });
   }
@@ -19,20 +17,13 @@ async function GET(req) {
 
   let where = {};
   if (session.role === "EMPLOYEE") {
-    // Employees only ever see their own reports.
     where.employeeId = session.id;
   } else if (session.role === "GARAGE_MANAGER") {
-    // Garage Managers see every report at their own garage.
     where.garageId = session.garageId || "__none__";
   }
-  // ADMIN sees everything, narrowed by the filters below.
 
-  if (garageId && session.role === "ADMIN") {
-    where.garageId = garageId;
-  }
-  if (employeeId && session.role !== "EMPLOYEE") {
-    where.employeeId = employeeId;
-  }
+  if (garageId && session.role === "ADMIN") where.garageId = garageId;
+  if (employeeId && session.role !== "EMPLOYEE") where.employeeId = employeeId;
   if (from || to) {
     where.shiftDate = {};
     if (from) where.shiftDate.gte = from;
@@ -57,8 +48,8 @@ async function GET(req) {
   return new Response(JSON.stringify(reports), { status: 200 });
 }
 
-function calcTotals(cash, credit, other, adjustments) {
-  const gross = (cash || 0) + (credit || 0) + (other || 0);
+function calcTotals(cash, credit, coupon, chargeBack, nc, loaner, other, adjustments) {
+  const gross = (cash||0)+(credit||0)+(coupon||0)+(chargeBack||0)+(nc||0)+(loaner||0)+(other||0);
   const net = gross - (adjustments || 0);
   return { gross, net };
 }
@@ -68,31 +59,16 @@ async function POST(req) {
   if (!session) return new Response(JSON.stringify({ error: "Not signed in." }), { status: 401 });
 
   if (!["EMPLOYEE", "GARAGE_MANAGER"].includes(session.role)) {
-    return new Response(
-      JSON.stringify({ error: "Only employees and garage managers can file shift reports." }),
-      { status: 403 }
-    );
+    return new Response(JSON.stringify({ error: "Only employees and garage managers can file shift reports." }), { status: 403 });
   }
   if (!session.garageId) {
-    return new Response(JSON.stringify({ error: "Your account isn't assigned to a garage." }), {
-      status: 400,
-    });
+    return new Response(JSON.stringify({ error: "Your account isn't assigned to a garage." }), { status: 400 });
   }
 
   const body = await req.json();
-  const {
-    shiftDate,
-    startTime,
-    endTime,
-    cashRevenue,
-    creditCardRevenue,
-    otherRevenue,
-    otherDescription,
-    adjustments,
-    adjustmentsNote,
-    notes,
-    submit,
-  } = body || {};
+  const { shiftDate, startTime, endTime, cashRevenue, creditCardRevenue, couponRevenue,
+    chargeBackRevenue, ncRevenue, loanerRevenue, otherRevenue, otherDescription,
+    adjustments, adjustmentsNote, notes, submit } = body || {};
 
   if (!shiftDate) {
     return new Response(JSON.stringify({ error: "Shift date is required." }), { status: 400 });
@@ -100,9 +76,13 @@ async function POST(req) {
 
   const cash = parseFloat(cashRevenue) || 0;
   const credit = parseFloat(creditCardRevenue) || 0;
+  const coupon = parseFloat(couponRevenue) || 0;
+  const chargeBack = parseFloat(chargeBackRevenue) || 0;
+  const nc = parseFloat(ncRevenue) || 0;
+  const loaner = parseFloat(loanerRevenue) || 0;
   const other = parseFloat(otherRevenue) || 0;
   const adj = parseFloat(adjustments) || 0;
-  const { gross, net } = calcTotals(cash, credit, other, adj);
+  const { gross, net } = calcTotals(cash, credit, coupon, chargeBack, nc, loaner, other, adj);
 
   const report = await prisma.shiftReport.create({
     data: {
@@ -113,6 +93,10 @@ async function POST(req) {
       endTime: endTime || null,
       cashRevenue: cash,
       creditCardRevenue: credit,
+      couponRevenue: coupon,
+      chargeBackRevenue: chargeBack,
+      ncRevenue: nc,
+      loanerRevenue: loaner,
       otherRevenue: other,
       otherDescription: otherDescription || null,
       adjustments: adj,

@@ -451,10 +451,30 @@ function CheckOutView() {
   const [code, setCode] = useState("");
   const [ticket, setTicket] = useState(null);
   const [error, setError] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState("CASH");
+  const [paymentMethod, setPaymentMethod] = useState("");
   const [paymentNote, setPaymentNote] = useState("");
   const [completing, setCompleting] = useState(false);
   const [completed, setCompleted] = useState(null);
+  const [enabledMethods, setEnabledMethods] = useState([]);
+
+  const METHOD_LABELS = {
+    CASH: "Cash", CREDIT_CARD: "Credit Card", COUPON: "Coupon",
+    CHARGE_BACK: "Charge Back", NC: "N/C", LOANER: "Loaner",
+  };
+
+  const loadEnabledMethods = useCallback(async () => {
+    const meRes = await fetch("/api/auth/me");
+    const meData = await meRes.json();
+    if (!meData.user?.garageId) return;
+    const res = await fetch(`/api/garages/${meData.user.garageId}/payment-methods`);
+    if (res.ok) {
+      const methods = await res.json();
+      setEnabledMethods(methods);
+      if (methods.length > 0) setPaymentMethod(methods[0].method);
+    }
+  }, []);
+
+  useEffect(() => { loadEnabledMethods(); }, [loadEnabledMethods]);
 
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraError, setCameraError] = useState("");
@@ -603,17 +623,37 @@ function CheckOutView() {
 
         <div className="field">
           <label>Payment method</label>
-          <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}>
-            <option value="CASH">Cash</option>
-            <option value="CREDIT_CARD">Credit card</option>
-          </select>
+          {enabledMethods.length === 0 ? (
+            <p style={{ color: "var(--red)", fontSize: 13 }}>
+              No payment methods are set up for this garage yet. Ask your Admin to configure them in the Garages tab.
+            </p>
+          ) : (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 4 }}>
+              {enabledMethods.map((m) => (
+                <button
+                  key={m.method}
+                  type="button"
+                  onClick={() => setPaymentMethod(m.method)}
+                  style={{
+                    padding: "10px 16px", borderRadius: 8, fontSize: 14, cursor: "pointer",
+                    background: paymentMethod === m.method ? "var(--brass)" : "var(--navy-2)",
+                    color: paymentMethod === m.method ? "var(--navy)" : "var(--cream)",
+                    border: paymentMethod === m.method ? "none" : "1px solid var(--line)",
+                    fontWeight: paymentMethod === m.method ? 700 : 400,
+                  }}
+                >
+                  {METHOD_LABELS[m.method] || m.method}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <div className="field">
           <label>Payment note (optional)</label>
           <input value={paymentNote} onChange={(e) => setPaymentNote(e.target.value)} placeholder="e.g. last 4 digits, terminal reference" />
         </div>
 
-        <button className="btn btn-primary" disabled={completing} onClick={completeCheckout}>
+        <button className="btn btn-primary" disabled={completing || !paymentMethod} onClick={completeCheckout}>
           {completing ? "Processing..." : `Complete checkout — ${money(ticket.previewFee)}`}
         </button>
         <button className="btn btn-ghost" onClick={() => setTicket(null)} disabled={completing}>
@@ -932,7 +972,11 @@ function MyReportsView({ user }) {
         <div className="card">
           <div className="totals-grid">
             <div className="totals-cell"><div className="label">Cash</div><div className="value">{money(viewing.cashRevenue)}</div></div>
-            <div className="totals-cell"><div className="label">Credit card</div><div className="value">{money(viewing.creditCardRevenue)}</div></div>
+            <div className="totals-cell"><div className="label">Credit Card</div><div className="value">{money(viewing.creditCardRevenue)}</div></div>
+            {(viewing.couponRevenue > 0) && <div className="totals-cell"><div className="label">Coupon</div><div className="value">{money(viewing.couponRevenue)}</div></div>}
+            {(viewing.chargeBackRevenue > 0) && <div className="totals-cell"><div className="label">Charge Back</div><div className="value">{money(viewing.chargeBackRevenue)}</div></div>}
+            {(viewing.ncRevenue > 0) && <div className="totals-cell"><div className="label">N/C</div><div className="value">{money(viewing.ncRevenue)}</div></div>}
+            {(viewing.loanerRevenue > 0) && <div className="totals-cell"><div className="label">Loaner</div><div className="value">{money(viewing.loanerRevenue)}</div></div>}
             <div className="totals-cell"><div className="label">Other</div><div className="value">{money(viewing.otherRevenue)}</div></div>
             <div className="totals-cell"><div className="label">Adjustments</div><div className="value">{money(viewing.adjustments)}</div></div>
             <div className="totals-cell"><div className="label">Gross total</div><div className="value">{money(viewing.grossTotal)}</div></div>
@@ -1019,7 +1063,11 @@ function GarageReportsView({ user }) {
         <div className="card">
           <div className="totals-grid">
             <div className="totals-cell"><div className="label">Cash</div><div className="value">{money(viewing.cashRevenue)}</div></div>
-            <div className="totals-cell"><div className="label">Credit card</div><div className="value">{money(viewing.creditCardRevenue)}</div></div>
+            <div className="totals-cell"><div className="label">Credit Card</div><div className="value">{money(viewing.creditCardRevenue)}</div></div>
+            {(viewing.couponRevenue > 0) && <div className="totals-cell"><div className="label">Coupon</div><div className="value">{money(viewing.couponRevenue)}</div></div>}
+            {(viewing.chargeBackRevenue > 0) && <div className="totals-cell"><div className="label">Charge Back</div><div className="value">{money(viewing.chargeBackRevenue)}</div></div>}
+            {(viewing.ncRevenue > 0) && <div className="totals-cell"><div className="label">N/C</div><div className="value">{money(viewing.ncRevenue)}</div></div>}
+            {(viewing.loanerRevenue > 0) && <div className="totals-cell"><div className="label">Loaner</div><div className="value">{money(viewing.loanerRevenue)}</div></div>}
             <div className="totals-cell"><div className="label">Other</div><div className="value">{money(viewing.otherRevenue)}</div></div>
             <div className="totals-cell"><div className="label">Adjustments</div><div className="value">{money(viewing.adjustments)}</div></div>
             <div className="totals-cell"><div className="label">Gross total</div><div className="value">{money(viewing.grossTotal)}</div></div>
@@ -1119,7 +1167,11 @@ function RevenueDashboard({ user }) {
           <p style={{ fontSize: 13, color: "var(--slate2)", marginBottom: 10 }}>{viewing.garage?.name}</p>
           <div className="totals-grid">
             <div className="totals-cell"><div className="label">Cash</div><div className="value">{money(viewing.cashRevenue)}</div></div>
-            <div className="totals-cell"><div className="label">Credit card</div><div className="value">{money(viewing.creditCardRevenue)}</div></div>
+            <div className="totals-cell"><div className="label">Credit Card</div><div className="value">{money(viewing.creditCardRevenue)}</div></div>
+            {(viewing.couponRevenue > 0) && <div className="totals-cell"><div className="label">Coupon</div><div className="value">{money(viewing.couponRevenue)}</div></div>}
+            {(viewing.chargeBackRevenue > 0) && <div className="totals-cell"><div className="label">Charge Back</div><div className="value">{money(viewing.chargeBackRevenue)}</div></div>}
+            {(viewing.ncRevenue > 0) && <div className="totals-cell"><div className="label">N/C</div><div className="value">{money(viewing.ncRevenue)}</div></div>}
+            {(viewing.loanerRevenue > 0) && <div className="totals-cell"><div className="label">Loaner</div><div className="value">{money(viewing.loanerRevenue)}</div></div>}
             <div className="totals-cell"><div className="label">Other</div><div className="value">{money(viewing.otherRevenue)}</div></div>
             <div className="totals-cell"><div className="label">Adjustments</div><div className="value">{money(viewing.adjustments)}</div></div>
             <div className="totals-cell"><div className="label">Gross total</div><div className="value">{money(viewing.grossTotal)}</div></div>
@@ -1216,6 +1268,19 @@ function GaragesView({ currentUser }) {
   const [tierFee, setTierFee] = useState("");
   const [tierLabel, setTierLabel] = useState("");
 
+  const [pmGarageId, setPmGarageId] = useState(null);
+  const [paymentMethods, setPaymentMethods] = useState([]);
+  const [pmError, setPmError] = useState("");
+
+  const ALL_METHODS = [
+    { key: "CASH", label: "Cash" },
+    { key: "CREDIT_CARD", label: "Credit Card" },
+    { key: "COUPON", label: "Coupon" },
+    { key: "CHARGE_BACK", label: "Charge Back" },
+    { key: "NC", label: "N/C" },
+    { key: "LOANER", label: "Loaner" },
+  ];
+
   const load = useCallback(async () => {
     const res = await fetch("/api/garages");
     if (res.ok) setGarages(await res.json());
@@ -1227,6 +1292,42 @@ function GaragesView({ currentUser }) {
     setTiersError("");
     const res = await fetch(`/api/garages/${garageId}/rate-tiers`);
     if (res.ok) setTiers(await res.json());
+  }
+
+  async function loadPaymentMethods(garageId) {
+    setPmError("");
+    const res = await fetch(`/api/garages/${garageId}/payment-methods`);
+    if (res.ok) setPaymentMethods(await res.json());
+  }
+
+  function togglePaymentMethods(garageId) {
+    if (pmGarageId === garageId) {
+      setPmGarageId(null);
+    } else {
+      setPmGarageId(garageId);
+      setTiersGarageId(null);
+      loadPaymentMethods(garageId);
+    }
+  }
+
+  async function addPaymentMethod(method) {
+    setPmError("");
+    const res = await fetch(`/api/garages/${pmGarageId}/payment-methods`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ method }),
+    });
+    const data = await res.json();
+    if (!res.ok) { setPmError(data.error); return; }
+    loadPaymentMethods(pmGarageId);
+  }
+
+  async function removePaymentMethod(pmId) {
+    setPmError("");
+    const res = await fetch(`/api/garages/${pmGarageId}/payment-methods/${pmId}`, { method: "DELETE" });
+    const data = await res.json();
+    if (!res.ok) { setPmError(data.error); return; }
+    loadPaymentMethods(pmGarageId);
   }
 
   function toggleTiers(garageId) {
@@ -1340,6 +1441,14 @@ function GaragesView({ currentUser }) {
                   Rate Tiers
                 </button>
               )}
+              {isAdmin && (
+                <button
+                  onClick={() => togglePaymentMethods(g.id)}
+                  style={{ background: "none", border: "none", color: "var(--brass-light)", fontSize: 11, cursor: "pointer", textTransform: "uppercase" }}
+                >
+                  Payment Methods
+                </button>
+              )}
               <button
                 className="role-tag"
                 style={{ background: "none", cursor: "pointer", color: "var(--red)" }}
@@ -1414,6 +1523,51 @@ function GaragesView({ currentUser }) {
                 </div>
                 <button className="mini-btn start" type="submit">Add tier</button>
               </form>
+            </div>
+          )}
+
+          {pmGarageId === g.id && (
+            <div style={{ padding: "10px 0 14px", borderBottom: "1px solid var(--line)" }}>
+              <div style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--brass-light)", marginBottom: 10 }}>
+                Payment Methods — {g.name}
+              </div>
+              {pmError && <div className="error-box">{pmError}</div>}
+              {paymentMethods.length === 0 && (
+                <p style={{ fontSize: 13, color: "var(--slate2)", marginBottom: 12 }}>
+                  No payment methods enabled yet — employees won't be able to check out vehicles until at least one is added.
+                </p>
+              )}
+              {paymentMethods.map((pm) => (
+                <div key={pm.id} className="list-row" style={{ padding: "8px 0" }}>
+                  <span style={{ fontWeight: 600 }}>{ALL_METHODS.find((m) => m.key === pm.method)?.label || pm.method}</span>
+                  <button
+                    style={{ background: "none", border: "none", color: "var(--red)", fontSize: 11, cursor: "pointer", textTransform: "uppercase" }}
+                    onClick={() => { if (window.confirm("Remove this payment method?")) removePaymentMethod(pm.id); }}
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+              <div style={{ marginTop: 14 }}>
+                <div style={{ fontSize: 11, color: "var(--slate2)", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.06em" }}>Add method:</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {ALL_METHODS.filter((m) => !paymentMethods.find((pm) => pm.method === m.key)).map((m) => (
+                    <button
+                      key={m.key}
+                      onClick={() => addPaymentMethod(m.key)}
+                      style={{
+                        background: "var(--navy)", border: "1px solid var(--brass)", color: "var(--brass-light)",
+                        borderRadius: 20, padding: "6px 14px", fontSize: 12, cursor: "pointer",
+                      }}
+                    >
+                      + {m.label}
+                    </button>
+                  ))}
+                  {ALL_METHODS.every((m) => paymentMethods.find((pm) => pm.method === m.key)) && (
+                    <span style={{ fontSize: 12, color: "var(--slate2)" }}>All methods enabled.</span>
+                  )}
+                </div>
+              </div>
             </div>
           )}
         </div>

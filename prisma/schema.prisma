@@ -46,6 +46,20 @@ model Garage {
   shiftReports ShiftReport[]
   tickets      Ticket[]
   rateTiers    RateTier[]
+  paymentMethods GaragePaymentMethod[]
+}
+
+// Which payment methods Admin has enabled for a given garage.
+// Employees only see and use the methods enabled here at checkout.
+model GaragePaymentMethod {
+  id        String   @id @default(cuid())
+  garageId  String
+  garage    Garage   @relation(fields: [garageId], references: [id])
+  // "CASH" | "CREDIT_CARD" | "COUPON" | "CHARGE_BACK" | "NC" | "LOANER"
+  method    String
+  createdAt DateTime @default(now())
+
+  @@unique([garageId, method])
 }
 
 model RateTier {
@@ -81,6 +95,10 @@ model ShiftReport {
 
   cashRevenue       Float @default(0)
   creditCardRevenue Float @default(0)
+  couponRevenue     Float @default(0)
+  chargeBackRevenue Float @default(0)
+  ncRevenue         Float @default(0)
+  loanerRevenue     Float @default(0)
   otherRevenue      Float @default(0)
   otherDescription  String?
 
