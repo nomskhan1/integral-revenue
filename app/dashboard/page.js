@@ -612,6 +612,9 @@ function CheckOutView() {
   }
 
   if (ticket) {
+    const ZERO_FEE_METHODS = new Set(["NC", "LOANER"]);
+    const displayedFee = ZERO_FEE_METHODS.has(paymentMethod) ? 0 : ticket.previewFee;
+
     return (
       <>
         <div className="hero-line">Confirm checkout</div>
@@ -635,7 +638,10 @@ function CheckOutView() {
           )}
           <div className="totals-grid" style={{ marginTop: 12 }}>
             <div className="totals-cell"><div className="label">Time parked</div><div className="value" style={{ fontSize: 16 }}>{Math.floor(ticket.previewMinutes / 60)}h {ticket.previewMinutes % 60}m</div></div>
-            <div className="totals-cell"><div className="label">Fee due</div><div className="value">{money(ticket.previewFee)}</div></div>
+            <div className="totals-cell">
+              <div className="label">Fee due</div>
+              <div className="value">{ZERO_FEE_METHODS.has(paymentMethod) ? "No charge" : money(displayedFee)}</div>
+            </div>
           </div>
         </div>
 
@@ -672,7 +678,11 @@ function CheckOutView() {
         </div>
 
         <button className="btn btn-primary" disabled={completing || !paymentMethod} onClick={completeCheckout}>
-          {completing ? "Processing..." : `Complete checkout — ${money(ticket.previewFee)}`}
+          {completing
+            ? "Processing..."
+            : ZERO_FEE_METHODS.has(paymentMethod)
+            ? "Complete checkout — No charge"
+            : `Complete checkout — ${money(displayedFee)}`}
         </button>
         <button className="btn btn-ghost" onClick={() => setTicket(null)} disabled={completing}>
           Cancel
