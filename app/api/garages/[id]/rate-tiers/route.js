@@ -6,17 +6,10 @@ async function GET(req, { params }) {
   if (!session) return new Response(JSON.stringify({ error: "Not signed in." }), { status: 401 });
 
   const { id } = params;
-
-  // Garage Manager and Employee need to be able to see the active rate
-  // structure (read-only) so they understand pricing — only Admin can
-  // change it.
   const tiers = await prisma.rateTier.findMany({
     where: { garageId: id },
-    orderBy: [{ maxHours: "asc" }],
+    orderBy: [{ maxMinutes: "asc" }],
   });
-
-  // Postgres sorts NULL last by default ascending, which is exactly what
-  // we want (the open-ended catch-all tier always comes last).
   return new Response(JSON.stringify(tiers), { status: 200 });
 }
 
@@ -28,27 +21,34 @@ async function POST(req, { params }) {
 
   const { id } = params;
   const body = await req.json();
-  const { label, maxHours, fee } = body || {};
+  const { label, maxMinutes, fee } = body || {};
 
   if (fee === undefined || fee === null || isNaN(parseFloat(fee))) {
     return new Response(JSON.stringify({ error: "A fee amount is required." }), { status: 400 });
   }
 
-  const parsedMaxHours = maxHours === "" || maxHours === null || maxHours === undefined ? null : parseInt(maxHours, 10);
+  // maxMinutes is already correctly parsed by the frontend (null = open-ended,
+  // integer = specific minute boundary). Guard against NaN just in case.
+  const isOpenEnded = maxMinutes === null || maxMinutes === undefined;
+  const parsedMaxMinutes = isOpenEnded ? null : parseInt(maxMinutes, 10);
 
-  if (parsedMaxHours !== null) {
-    const existing = await prisma.rateTier.findFirst({ where: { garageId: id, maxHours: parsedMaxHours } });
-    if (existing) {
+  if (!isOpenEnded && (isNaN(parsedMaxMinutes) || parsedMaxMinutes <= 0)) {
+    return new Response(JSON.stringify({ error: "Please enter a valid duration." }), { status: 400 });
+  }
+
+  if (isOpenEnded) {
+    const existingOpenEnded = await prisma.rateTier.findFirst({ where: { garageId: id, maxMinutes: null } });
+    if (existingOpenEnded) {
       return new Response(
-        JSON.stringify({ error: `A tier for "up to ${parsedMaxHours} hour(s)" already exists.` }),
+        JSON.stringify({ error: 'An open-ended ("anything beyond") tier already exists. Remove it first.' }),
         { status: 409 }
       );
     }
   } else {
-    const existingOpenEnded = await prisma.rateTier.findFirst({ where: { garageId: id, maxHours: null } });
-    if (existingOpenEnded) {
+    const existing = await prisma.rateTier.findFirst({ where: { garageId: id, maxMinutes: parsedMaxMinutes } });
+    if (existing) {
       return new Response(
-        JSON.stringify({ error: "An open-ended (\"anything beyond\") tier already exists. Edit or remove it first." }),
+        JSON.stringify({ error: `A tier for that duration already exists.` }),
         { status: 409 }
       );
     }
@@ -58,7 +58,7 @@ async function POST(req, { params }) {
     data: {
       garageId: id,
       label: label || null,
-      maxHours: parsedMaxHours,
+      maxMinutes: parsedMaxMinutes,
       fee: parseFloat(fee),
     },
   });
