@@ -6,6 +6,44 @@ function money(n) {
   return "$" + (Number(n) || 0).toFixed(2);
 }
 
+// Formats a rate tier's maxMinutes into a friendly label, e.g.
+// 30 -> "30 min", 45 -> "45 min", 60 -> "1 hour", 90 -> "1 hr 30 min",
+// 240 -> "4 hours".
+function formatTierDuration(maxMinutes) {
+  if (maxMinutes === null || maxMinutes === undefined) return "Anything beyond";
+  const hours = Math.floor(maxMinutes / 60);
+  const mins = maxMinutes % 60;
+  if (hours === 0) return `Up to ${mins} min`;
+  if (mins === 0) return `Up to ${hours} hour${hours === 1 ? "" : "s"}`;
+  return `Up to ${hours} hr ${mins} min`;
+}
+
+// Parses an "hours.minutes" style input like a clock reading, NOT a
+// decimal fraction — "1.45" means 1 hour 45 minutes (105 total minutes),
+// not 1.45 hours. "0.30" means 30 minutes. A plain whole number like "2"
+// means 2 hours exactly. Returns { minutes } on success, or
+// { error } if the minutes portion isn't a valid 0–59 value.
+function parseHoursMinutesInput(raw) {
+  const str = String(raw ?? "").trim();
+  if (str === "") return { minutes: null }; // open-ended tier
+
+  if (!str.includes(".")) {
+    const hours = parseInt(str, 10);
+    if (isNaN(hours) || hours < 0) return { error: "Enter a valid number of hours." };
+    return { minutes: hours * 60 };
+  }
+
+  const [hoursPart, minutesPart] = str.split(".");
+  const hours = hoursPart === "" ? 0 : parseInt(hoursPart, 10);
+  const minutes = parseInt(minutesPart, 10);
+
+  if (isNaN(hours) || hours < 0) return { error: "Enter a valid number of hours." };
+  if (isNaN(minutes) || minutes < 0 || minutes > 59) {
+    return { error: `"${str}" isn't valid — the part after the decimal must be 0–59 minutes (e.g. 1.45 = 1 hr 45 min).` };
+  }
+  return { minutes: hours * 60 + minutes };
+}
+
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -2287,7 +2325,7 @@ function GaragesView({ currentUser }) {
   const [tiersGarageId, setTiersGarageId] = useState(null);
   const [tiers, setTiers] = useState([]);
   const [tiersError, setTiersError] = useState("");
-  const [tierMaxHours, setTierMaxHours] = useState("");
+  const [tierMaxMinutes, setTierMaxMinutes] = useState("");
   const [tierFee, setTierFee] = useState("");
   const [tierLabel, setTierLabel] = useState("");
 
@@ -2405,7 +2443,7 @@ function GaragesView({ currentUser }) {
       setTiersGarageId(null);
     } else {
       setTiersGarageId(garageId);
-      setTierMaxHours(""); setTierFee(""); setTierLabel("");
+      setTierMaxMinutes(""); setTierFee(""); setTierLabel("");
       loadTiers(garageId);
     }
   }
@@ -2413,14 +2451,16 @@ function GaragesView({ currentUser }) {
   async function addTier(e) {
     e.preventDefault();
     setTiersError("");
+    const parsed = parseHoursMinutesInput(tierMaxMinutes);
+    if (parsed.error) { setTiersError(parsed.error); return; }
     const res = await fetch(`/api/garages/${tiersGarageId}/rate-tiers`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ label: tierLabel, maxHours: tierMaxHours, fee: tierFee }),
+      body: JSON.stringify({ label: tierLabel, maxMinutes: parsed.minutes, fee: tierFee }),
     });
     const data = await res.json();
     if (!res.ok) { setTiersError(data.error); return; }
-    setTierMaxHours(""); setTierFee(""); setTierLabel("");
+    setTierMaxMinutes(""); setTierFee(""); setTierLabel("");
     loadTiers(tiersGarageId);
   }
 
@@ -2572,7 +2612,7 @@ function GaragesView({ currentUser }) {
                 <div key={t.id} className="list-row" style={{ padding: "8px 0" }}>
                   <span>
                     {t.label ? `${t.label} — ` : ""}
-                    {t.maxHours === null ? "Anything beyond" : `Up to ${t.maxHours} hour${t.maxHours === 1 ? "" : "s"}`}
+                    {formatTierDuration(t.maxMinutes)}
                   </span>
                   <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
                     <span style={{ color: "var(--brass-light)" }}>{money(t.fee)}</span>
@@ -2592,8 +2632,11 @@ function GaragesView({ currentUser }) {
                   <input value={tierLabel} onChange={(e) => setTierLabel(e.target.value)} placeholder="e.g. Overnight" />
                 </div>
                 <div className="field">
-                  <label>Up to how many hours? (leave blank for the open-ended "anything beyond" tier)</label>
-                  <input type="number" min="1" step="1" value={tierMaxHours} onChange={(e) => setTierMaxHours(e.target.value)} placeholder="e.g. 1" />
+                  <label>Up to how many hours? (e.g. 1 = 1 hour, 1.45 = 1 hr 45 min, 0.30 = 30 min — leave blank for the open-ended "anything beyond" tier)</label>
+                  <input type="text" inputMode="decimal" value={tierMaxMinutes} onChange={(e) => setTierMaxMinutes(e.target.value)} placeholder="e.g. 1, 1.45, or 0.30" />
+                  {tierMaxMinutes.trim() !== "" && !parseHoursMinutesInput(tierMaxMinutes).error && (
+                    <div className="field-hint">= {formatTierDuration(parseHoursMinutesInput(tierMaxMinutes).minutes)}</div>
+                  )}
                 </div>
                 <div className="field">
                   <label>Fee for this tier ($)</label>
