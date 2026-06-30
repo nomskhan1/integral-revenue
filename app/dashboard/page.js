@@ -1052,6 +1052,131 @@ const METHOD_LABELS_DISPLAY = {
 // Zero-fee methods — shown as count only, not dollar amounts.
 const ZERO_FEE_METHODS = new Set(["NC", "LOANER"]);
 
+function PrintableShiftReport({ report }) {
+  if (!report) return null;
+  const allTickets = report.tickets || [];
+  const METHOD_LABELS = {
+    CASH: "Cash", CREDIT_CARD: "Credit Card", COUPON: "Coupon",
+    CHARGE_BACK: "Charge Back", NC: "N/C", LOANER: "Loaner",
+  };
+  const ZERO_FEE = new Set(["NC", "LOANER"]);
+  const groups = {};
+  allTickets.forEach((t) => {
+    const key = t.paymentMethod || "OTHER";
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(t);
+  });
+
+  return (
+    <div className="print-report">
+      <div className="pr-header">
+        <div className="pr-title">Integral Revenue — Shift Report</div>
+        <div className="pr-meta">
+          <span><b>Garage:</b> {report.garage?.name}</span>
+          <span><b>Employee:</b> {report.employee?.name}</span>
+          <span><b>Date:</b> {report.shiftDate}</span>
+          {report.startTime && <span><b>Shift:</b> {report.startTime} – {report.endTime || "?"}</span>}
+          <span><b>Status:</b> {report.status}</span>
+        </div>
+      </div>
+
+      <div className="pr-section">
+        <div className="pr-section-title">Revenue Summary</div>
+        <div className="pr-grid">
+          <div className="pr-cell"><div className="label">Cash</div><div className="value">{money(report.cashRevenue)}</div></div>
+          <div className="pr-cell"><div className="label">Credit Card</div><div className="value">{money(report.creditCardRevenue)}</div></div>
+          {(report.couponRevenue > 0) && <div className="pr-cell"><div className="label">Coupon</div><div className="value">{money(report.couponRevenue)}</div></div>}
+          {(report.chargeBackRevenue > 0) && <div className="pr-cell"><div className="label">Charge Back</div><div className="value">{money(report.chargeBackRevenue)}</div></div>}
+          {(report.otherRevenue > 0) && <div className="pr-cell"><div className="label">Other</div><div className="value">{money(report.otherRevenue)}</div></div>}
+          {allTickets.filter(t => t.paymentMethod === "NC").length > 0 && (
+            <div className="pr-cell"><div className="label">N/C Tickets</div><div className="value">{allTickets.filter(t => t.paymentMethod === "NC").length} tickets</div></div>
+          )}
+          {allTickets.filter(t => t.paymentMethod === "LOANER").length > 0 && (
+            <div className="pr-cell"><div className="label">Loaner Tickets</div><div className="value">{allTickets.filter(t => t.paymentMethod === "LOANER").length} tickets</div></div>
+          )}
+        </div>
+        <div style={{ marginTop: 10 }}>
+          <div className="pr-totals-row"><span>Gross Total</span><span>{money(report.grossTotal)}</span></div>
+          {(report.adjustments > 0) && <div className="pr-totals-row"><span>Adjustments</span><span>- {money(report.adjustments)}{report.adjustmentsNote ? ` (${report.adjustmentsNote})` : ""}</span></div>}
+          <div className="pr-net">Net Total: {money(report.netTotal)}</div>
+        </div>
+      </div>
+
+      {allTickets.length > 0 && (
+        <div className="pr-section">
+          <div className="pr-section-title">Ticket Transactions ({allTickets.length} total)</div>
+          {Object.entries(groups).map(([method, tickets]) => (
+            <div key={method} style={{ marginBottom: 12 }}>
+              <div style={{ fontWeight: 700, fontSize: 11, marginBottom: 4 }}>{METHOD_LABELS[method] || method}</div>
+              <table className="pr-table">
+                <thead>
+                  <tr>
+                    <th>Ticket #</th>
+                    <th>Unit</th>
+                    <th>Vehicle</th>
+                    <th>Duration</th>
+                    <th>Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tickets.map((t) => (
+                    <tr key={t.id}>
+                      <td>#{t.ticketNumber}</td>
+                      <td>{t.apartmentNumber || "—"}</td>
+                      <td>{[t.vehicleColor, t.vehicleMake, t.vehicleModel].filter(Boolean).join(" ") || "—"}{t.licensePlate ? ` · ${t.licensePlate}` : ""}</td>
+                      <td>{t.durationMinutes ? `${Math.floor(t.durationMinutes/60)}h ${t.durationMinutes%60}m` : "—"}</td>
+                      <td>{ZERO_FEE.has(method) ? "No charge" : money(t.feeAmount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {report.notes && (
+        <div className="pr-section">
+          <div className="pr-section-title">Notes</div>
+          <p style={{ margin: 0, fontSize: 12 }}>{report.notes}</p>
+        </div>
+      )}
+
+      <div className="pr-footer">
+        <span>Integral Revenue Management</span>
+        <span>Printed {new Date().toLocaleString()}</span>
+        {report.submittedAt && <span>Submitted {new Date(report.submittedAt).toLocaleString()}</span>}
+      </div>
+    </div>
+  );
+}
+
+function DownloadReportButton({ report }) {
+  const [printing, setPrinting] = useState(false);
+
+  function handlePrint() {
+    setPrinting(true);
+    setTimeout(() => {
+      window.print();
+      setPrinting(false);
+    }, 150);
+  }
+
+  return (
+    <>
+      <button
+        className="btn btn-ghost"
+        onClick={handlePrint}
+        disabled={printing}
+        style={{ marginTop: 10 }}
+      >
+        {printing ? "Preparing..." : "⬇ Download / Print Report"}
+      </button>
+      <PrintableShiftReport report={report} />
+    </>
+  );
+}
+
 function TicketTransactionsList({ tickets }) {
   const [activeTab, setActiveTab] = useState(null);
 
@@ -1211,7 +1336,8 @@ function MyReportsView({ user }) {
             {viewing.submittedAt ? ` · Submitted ${new Date(viewing.submittedAt).toLocaleString()}` : ""}
           </p>
         </div>
-        <button className="btn btn-ghost" onClick={() => setViewing(null)}>Back</button>
+        <DownloadReportButton report={viewing} />
+        <button className="btn btn-ghost" onClick={() => setViewing(null)} style={{ marginTop: 10 }}>Back</button>
       </>
     );
   }
@@ -1321,7 +1447,8 @@ function GarageReportsView({ user }) {
           </div>
           <TicketTransactionsList tickets={viewing.tickets} />
         </div>
-        <button className="btn btn-ghost" onClick={() => setViewing(null)}>Back</button>
+        <DownloadReportButton report={viewing} />
+        <button className="btn btn-ghost" onClick={() => setViewing(null)} style={{ marginTop: 10 }}>Back</button>
       </>
     );
   }
@@ -1471,7 +1598,8 @@ function RevenueDashboard({ user }) {
           {viewing.notes && <p style={{ marginTop: 14, fontSize: 13, color: "var(--slate2)" }}>Notes: {viewing.notes}</p>}
           <TicketTransactionsList tickets={viewing.tickets} />
         </div>
-        <button className="btn btn-ghost" onClick={() => setViewing(null)}>Back</button>
+        <DownloadReportButton report={viewing} />
+        <button className="btn btn-ghost" onClick={() => setViewing(null)} style={{ marginTop: 10 }}>Back</button>
       </>
     );
   }

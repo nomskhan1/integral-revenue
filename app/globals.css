@@ -90,13 +90,39 @@ h1.title{ font-family:"Oswald",sans-serif; font-size:26px; line-height:1.1; marg
 
 footer.note{ text-align:center; font-size:11px; color:var(--slate2); padding:14px 20px 22px; }
 
+/* Printable shift report — shown only when printing */
+.print-report{ display:none; }
+@media print{
+  body *{ visibility:hidden; }
+  .print-report, .print-report *{ visibility:visible; }
+  .print-report{
+    display:block; position:absolute; top:0; left:0; width:100%;
+    padding:20mm 15mm; font-family:"Arial",sans-serif; color:#000; background:#fff;
+    font-size:12px;
+  }
+  .pr-header{ border-bottom:2px solid #000; padding-bottom:10px; margin-bottom:16px; }
+  .pr-title{ font-size:22px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; }
+  .pr-meta{ display:flex; gap:30px; margin-top:6px; font-size:11px; color:#444; }
+  .pr-section{ margin-bottom:16px; }
+  .pr-section-title{ font-size:11px; text-transform:uppercase; letter-spacing:0.08em; font-weight:700; color:#555; border-bottom:1px solid #ddd; padding-bottom:4px; margin-bottom:8px; }
+  .pr-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+  .pr-cell{ border:1px solid #ddd; border-radius:4px; padding:8px 10px; }
+  .pr-cell .label{ font-size:10px; text-transform:uppercase; color:#888; margin-bottom:2px; }
+  .pr-cell .value{ font-size:16px; font-weight:700; }
+  .pr-table{ width:100%; border-collapse:collapse; font-size:11px; }
+  .pr-table th{ text-align:left; padding:5px 8px; background:#f5f5f5; border:1px solid #ddd; font-size:10px; text-transform:uppercase; }
+  .pr-table td{ padding:5px 8px; border:1px solid #ddd; }
+  .pr-table tr:nth-child(even) td{ background:#fafafa; }
+  .pr-totals-row{ display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #eee; font-size:13px; }
+  .pr-net{ font-size:18px; font-weight:700; margin-top:8px; }
+  .pr-footer{ margin-top:20px; border-top:1px solid #ddd; padding-top:10px; font-size:10px; color:#888; display:flex; justify-content:space-between; }
+}
+
 /* Printable ticket — sized for an 80mm thermal receipt printer. When the
    browser's print dialog is opened, only .print-ticket is shown; everything
    else on the page is hidden. */
 .print-ticket{ display:none; }
 @media print{
-  body *{ visibility:hidden; }
-  .print-ticket, .print-ticket *{ visibility:visible; }
   .print-ticket{
     display:block; position:absolute; top:0; left:0; width:80mm;
     padding:4mm; font-family:"Courier New", monospace; color:#000; background:#fff; font-size:18px;
