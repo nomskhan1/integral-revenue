@@ -47,6 +47,17 @@ model Garage {
   tickets      Ticket[]
   rateTiers    RateTier[]
   paymentMethods GaragePaymentMethod[]
+  shiftTemplates ShiftTemplate[]
+}
+
+model ShiftTemplate {
+  id        String   @id @default(cuid())
+  garageId  String
+  garage    Garage   @relation(fields: [garageId], references: [id])
+  name      String   // e.g. "Morning", "Evening", "Night"
+  startTime String   // e.g. "7:00 AM"
+  endTime   String   // e.g. "3:00 PM"
+  createdAt DateTime @default(now())
 }
 
 // Which payment methods Admin has enabled for a given garage.

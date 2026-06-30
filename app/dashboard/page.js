@@ -777,9 +777,9 @@ function ShiftReportForm({ existing, onSaved, onCancel, readOnly }) {
   const [shiftDate, setShiftDate] = useState(existing?.shiftDate || todayStr());
   const [startTime, setStartTime] = useState(existing?.startTime || "");
   const [endTime, setEndTime] = useState(existing?.endTime || "");
+  const [couponRevenue, setCouponRevenue] = useState(existing?.couponRevenue ?? "");
   const [cashRevenue, setCashRevenue] = useState(existing?.cashRevenue ?? "");
   const [creditCardRevenue, setCreditCardRevenue] = useState(existing?.creditCardRevenue ?? "");
-  const [couponRevenue, setCouponRevenue] = useState(existing?.couponRevenue ?? "");
   const [chargeBackRevenue, setChargeBackRevenue] = useState(existing?.chargeBackRevenue ?? "");
   const [otherRevenue, setOtherRevenue] = useState(existing?.otherRevenue ?? "");
   const [otherDescription, setOtherDescription] = useState(existing?.otherDescription || "");
@@ -788,6 +788,26 @@ function ShiftReportForm({ existing, onSaved, onCancel, readOnly }) {
   const [notes, setNotes] = useState(existing?.notes || "");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [shiftTemplates, setShiftTemplates] = useState([]);
+
+  // Load shift templates for this garage so the employee can select one.
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then(r => r.json())
+      .then(d => {
+        if (d.user?.garageId) {
+          fetch(`/api/garages/${d.user.garageId}/shift-templates`)
+            .then(r => r.json())
+            .then(templates => { if (Array.isArray(templates)) setShiftTemplates(templates); });
+        }
+      });
+  }, []);
+
+  function applyTemplate(templateId) {
+    if (!templateId) return;
+    const t = shiftTemplates.find(t => t.id === templateId);
+    if (t) { setStartTime(t.startTime); setEndTime(t.endTime); }
+  }
 
   const ncTickets = existing?.tickets?.filter(t => t.paymentMethod === "NC") || [];
   const loanerTickets = existing?.tickets?.filter(t => t.paymentMethod === "LOANER") || [];
@@ -872,6 +892,23 @@ function ShiftReportForm({ existing, onSaved, onCancel, readOnly }) {
         <label>Shift date</label>
         <input type="date" value={shiftDate} onChange={(e) => setShiftDate(e.target.value)} required disabled={readOnly} />
       </div>
+
+      {shiftTemplates.length > 0 && !readOnly && (
+        <div className="field">
+          <label>Select shift (auto-fills times)</label>
+          <select
+            defaultValue=""
+            onChange={(e) => applyTemplate(e.target.value)}
+            style={{ background: "var(--navy-2)", border: "1px solid var(--line)", color: "var(--cream)", padding: "13px 14px", borderRadius: 8, fontSize: 16, width: "100%" }}
+          >
+            <option value="" disabled>Choose a shift…</option>
+            {shiftTemplates.map(t => (
+              <option key={t.id} value={t.id}>{t.name} ({t.startTime} – {t.endTime})</option>
+            ))}
+          </select>
+        </div>
+      )}
+
       <div style={{ display: "flex", gap: 10 }}>
         <div className="field" style={{ flex: 1 }}>
           <label>Start time</label>
@@ -1232,6 +1269,17 @@ function MyReportsView({ user }) {
 function GarageReportsView({ user }) {
   const [reports, setReports] = useState([]);
   const [viewing, setViewing] = useState(null);
+  const [categoryFilter, setCategoryFilter] = useState("");
+
+  const CATEGORY_OPTIONS = [
+    { key: "CASH", label: "Cash" }, { key: "CREDIT_CARD", label: "Credit Card" },
+    { key: "COUPON", label: "Coupon" }, { key: "CHARGE_BACK", label: "Charge Back" },
+    { key: "NC", label: "N/C" }, { key: "LOANER", label: "Loaner" },
+  ];
+  const CATEGORY_TO_FIELD = {
+    CASH: "cashRevenue", CREDIT_CARD: "creditCardRevenue",
+    COUPON: "couponRevenue", CHARGE_BACK: "chargeBackRevenue",
+  };
 
   const load = useCallback(async () => {
     const res = await fetch("/api/shift-reports");
@@ -1239,6 +1287,16 @@ function GarageReportsView({ user }) {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  const filteredReports = categoryFilter
+    ? reports.filter((r) => {
+        if (categoryFilter === "NC" || categoryFilter === "LOANER") {
+          return r.tickets?.some(t => t.paymentMethod === categoryFilter);
+        }
+        const field = CATEGORY_TO_FIELD[categoryFilter];
+        return field ? (r[field] || 0) > 0 : false;
+      })
+    : reports;
 
   if (viewing) {
     return (
@@ -1268,7 +1326,7 @@ function GarageReportsView({ user }) {
     );
   }
 
-  const totalNet = reports.reduce((sum, r) => sum + r.netTotal, 0);
+  const totalNet = filteredReports.reduce((sum, r) => sum + r.netTotal, 0);
 
   return (
     <>
@@ -1276,13 +1334,20 @@ function GarageReportsView({ user }) {
         <h1 className="title" style={{ marginBottom: 2 }}>Garage Reports</h1>
         <span className="count-badge">{money(totalNet)} net</span>
       </div>
-      {reports.length === 0 ? (
+      <div className="field">
+        <label>Filter by category</label>
+        <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+          <option value="">All categories</option>
+          {CATEGORY_OPTIONS.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+        </select>
+      </div>
+      {filteredReports.length === 0 ? (
         <div className="empty-state">
-          <div className="big">No reports yet</div>
-          Reports submitted by your team will show up here.
+          <div className="big">No reports match this filter</div>
+          {!categoryFilter && "Reports submitted by your team will show up here."}
         </div>
       ) : (
-        reports.map((r) => <ReportRow key={r.id} r={r} showEmployee onClick={() => setViewing(r)} />)
+        filteredReports.map((r) => <ReportRow key={r.id} r={r} showEmployee onClick={() => setViewing(r)} />)
       )}
     </>
   );
@@ -1297,7 +1362,22 @@ function RevenueDashboard({ user }) {
   const [employeeFilter, setEmployeeFilter] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
   const [viewing, setViewing] = useState(null);
+
+  const CATEGORY_OPTIONS = [
+    { key: "CASH", label: "Cash" },
+    { key: "CREDIT_CARD", label: "Credit Card" },
+    { key: "COUPON", label: "Coupon" },
+    { key: "CHARGE_BACK", label: "Charge Back" },
+    { key: "NC", label: "N/C" },
+    { key: "LOANER", label: "Loaner" },
+  ];
+
+  const CATEGORY_TO_FIELD = {
+    CASH: "cashRevenue", CREDIT_CARD: "creditCardRevenue",
+    COUPON: "couponRevenue", CHARGE_BACK: "chargeBackRevenue",
+  };
 
   const loadFilters = useCallback(async () => {
     const [gRes, uRes] = await Promise.all([fetch("/api/garages"), fetch("/api/users")]);
@@ -1318,7 +1398,19 @@ function RevenueDashboard({ user }) {
   useEffect(() => { loadFilters(); }, [loadFilters]);
   useEffect(() => { loadReports(); }, [loadReports]);
 
-  const totals = reports.reduce(
+  // Client-side category filter — only show reports that have
+  // revenue or tickets in the selected payment category.
+  const filteredReports = categoryFilter
+    ? reports.filter((r) => {
+        if (categoryFilter === "NC" || categoryFilter === "LOANER") {
+          return r.tickets?.some(t => t.paymentMethod === categoryFilter);
+        }
+        const field = CATEGORY_TO_FIELD[categoryFilter];
+        return field ? (r[field] || 0) > 0 : false;
+      })
+    : reports;
+
+  const totals = filteredReports.reduce(
     (acc, r) => ({
       cash: acc.cash + (r.cashRevenue || 0),
       credit: acc.credit + (r.creditCardRevenue || 0),
@@ -1336,7 +1428,7 @@ function RevenueDashboard({ user }) {
   function exportCsv() {
     const rows = [
       ["Date", "Garage", "Employee", "Status", "Cash", "Credit Card", "Coupon", "Charge Back", "Other", "Adjustments", "Gross", "Net", "N/C Count", "Loaner Count"],
-      ...reports.map((r) => [
+      ...filteredReports.map((r) => [
         r.shiftDate, r.garage?.name || "", r.employee?.name || "", r.status,
         r.cashRevenue, r.creditCardRevenue, r.couponRevenue || 0, r.chargeBackRevenue || 0,
         r.otherRevenue, r.adjustments, r.grossTotal, r.netTotal,
@@ -1388,7 +1480,7 @@ function RevenueDashboard({ user }) {
     <>
       <div className="queue-header">
         <h1 className="title" style={{ marginBottom: 2 }}>Central Revenue</h1>
-        <span className="count-badge">{reports.length} reports</span>
+        <span className="count-badge">{filteredReports.length} reports</span>
       </div>
 
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 4 }}>
@@ -1417,6 +1509,13 @@ function RevenueDashboard({ user }) {
           <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
         </div>
       </div>
+      <div className="field">
+        <label>Category</label>
+        <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+          <option value="">All categories</option>
+          {CATEGORY_OPTIONS.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+        </select>
+      </div>
 
       <div className="card">
         <div style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--brass-light)", marginBottom: 10 }}>
@@ -1441,12 +1540,12 @@ function RevenueDashboard({ user }) {
         </button>
       </div>
 
-      {reports.length === 0 ? (
+      {filteredReports.length === 0 ? (
         <div className="empty-state">
           <div className="big">No reports match this filter</div>
         </div>
       ) : (
-        reports.map((r) => <ReportRow key={r.id} r={r} showEmployee onClick={() => setViewing(r)} />)
+        filteredReports.map((r) => <ReportRow key={r.id} r={r} showEmployee onClick={() => setViewing(r)} />)
       )}
     </>
   );
@@ -1474,6 +1573,13 @@ function GaragesView({ currentUser }) {
   const [pmGarageId, setPmGarageId] = useState(null);
   const [paymentMethods, setPaymentMethods] = useState([]);
   const [pmError, setPmError] = useState("");
+
+  const [stGarageId, setStGarageId] = useState(null);
+  const [shiftTemplates, setShiftTemplates] = useState([]);
+  const [stError, setStError] = useState("");
+  const [stName, setStName] = useState("");
+  const [stStart, setStStart] = useState("");
+  const [stEnd, setStEnd] = useState("");
 
   const ALL_METHODS = [
     { key: "CASH", label: "Cash" },
@@ -1531,6 +1637,46 @@ function GaragesView({ currentUser }) {
     const data = await res.json();
     if (!res.ok) { setPmError(data.error); return; }
     loadPaymentMethods(pmGarageId);
+  }
+
+  async function loadShiftTemplates(garageId) {
+    setStError("");
+    const res = await fetch(`/api/garages/${garageId}/shift-templates`);
+    if (res.ok) setShiftTemplates(await res.json());
+  }
+
+  function toggleShiftTemplates(garageId) {
+    if (stGarageId === garageId) {
+      setStGarageId(null);
+    } else {
+      setStGarageId(garageId);
+      setTiersGarageId(null);
+      setPmGarageId(null);
+      setStName(""); setStStart(""); setStEnd("");
+      loadShiftTemplates(garageId);
+    }
+  }
+
+  async function addShiftTemplate(e) {
+    e.preventDefault();
+    setStError("");
+    const res = await fetch(`/api/garages/${stGarageId}/shift-templates`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: stName, startTime: stStart, endTime: stEnd }),
+    });
+    const data = await res.json();
+    if (!res.ok) { setStError(data.error); return; }
+    setStName(""); setStStart(""); setStEnd("");
+    loadShiftTemplates(stGarageId);
+  }
+
+  async function removeShiftTemplate(templateId) {
+    setStError("");
+    const res = await fetch(`/api/garages/${stGarageId}/shift-templates/${templateId}`, { method: "DELETE" });
+    const data = await res.json();
+    if (!res.ok) { setStError(data.error); return; }
+    loadShiftTemplates(stGarageId);
   }
 
   function toggleTiers(garageId) {
@@ -1652,6 +1798,14 @@ function GaragesView({ currentUser }) {
                   Payment Methods
                 </button>
               )}
+              {isAdmin && (
+                <button
+                  onClick={() => toggleShiftTemplates(g.id)}
+                  style={{ background: "none", border: "none", color: "var(--brass-light)", fontSize: 11, cursor: "pointer", textTransform: "uppercase" }}
+                >
+                  Shift Timings
+                </button>
+              )}
               <button
                 className="role-tag"
                 style={{ background: "none", cursor: "pointer", color: "var(--red)" }}
@@ -1771,6 +1925,51 @@ function GaragesView({ currentUser }) {
                   )}
                 </div>
               </div>
+            </div>
+          )}
+
+          {stGarageId === g.id && (
+            <div style={{ padding: "10px 0 14px", borderBottom: "1px solid var(--line)" }}>
+              <div style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--brass-light)", marginBottom: 10 }}>
+                Shift Timings — {g.name}
+              </div>
+              {stError && <div className="error-box">{stError}</div>}
+              {shiftTemplates.length === 0 && (
+                <p style={{ fontSize: 13, color: "var(--slate2)", marginBottom: 12 }}>
+                  No shift timings defined yet. Add shifts below and employees can select them when filing reports.
+                </p>
+              )}
+              {shiftTemplates.map((t) => (
+                <div key={t.id} className="list-row" style={{ padding: "10px 0" }}>
+                  <div>
+                    <div style={{ fontWeight: 600 }}>{t.name}</div>
+                    <div style={{ fontSize: 12, color: "var(--slate2)" }}>{t.startTime} → {t.endTime}</div>
+                  </div>
+                  <button
+                    style={{ background: "none", border: "none", color: "var(--red)", fontSize: 11, cursor: "pointer", textTransform: "uppercase" }}
+                    onClick={() => { if (window.confirm(`Remove "${t.name}" shift?`)) removeShiftTemplate(t.id); }}
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+              <form onSubmit={addShiftTemplate} style={{ marginTop: 14 }}>
+                <div className="field">
+                  <label>Shift name</label>
+                  <input value={stName} onChange={(e) => setStName(e.target.value)} placeholder="e.g. Morning, Evening, Night" required />
+                </div>
+                <div style={{ display: "flex", gap: 10 }}>
+                  <div className="field" style={{ flex: 1 }}>
+                    <label>Start time</label>
+                    <input value={stStart} onChange={(e) => setStStart(e.target.value)} placeholder="e.g. 7:00 AM" required />
+                  </div>
+                  <div className="field" style={{ flex: 1 }}>
+                    <label>End time</label>
+                    <input value={stEnd} onChange={(e) => setStEnd(e.target.value)} placeholder="e.g. 3:00 PM" required />
+                  </div>
+                </div>
+                <button className="mini-btn start" type="submit">Add shift</button>
+              </form>
             </div>
           )}
         </div>
