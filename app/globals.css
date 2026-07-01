@@ -111,8 +111,15 @@ footer.note{ text-align:center; font-size:11px; color:var(--slate2); padding:14p
 
 /* Printable shift report — shown only when printing */
 .print-report{ display:none; }
+
+/* Printable ticket — sized for an 80mm thermal receipt printer */
+.print-ticket{ display:none; }
+
 @media print{
+  /* Hide everything by default */
   body *{ visibility:hidden; }
+
+  /* Shift report printing */
   .print-report, .print-report *{ visibility:visible; }
   .print-report{
     display:block; position:absolute; top:0; left:0; width:100%;
@@ -135,13 +142,9 @@ footer.note{ text-align:center; font-size:11px; color:var(--slate2); padding:14p
   .pr-totals-row{ display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #eee; font-size:13px; }
   .pr-net{ font-size:18px; font-weight:700; margin-top:8px; }
   .pr-footer{ margin-top:20px; border-top:1px solid #ddd; padding-top:10px; font-size:10px; color:#888; display:flex; justify-content:space-between; }
-}
 
-/* Printable ticket — sized for an 80mm thermal receipt printer. When the
-   browser's print dialog is opened, only .print-ticket is shown; everything
-   else on the page is hidden. */
-.print-ticket{ display:none; }
-@media print{
+  /* Ticket printing */
+  .print-ticket, .print-ticket *{ visibility:visible; }
   .print-ticket{
     display:block; position:absolute; top:0; left:0; width:80mm;
     padding:4mm; font-family:"Courier New", monospace; color:#000; background:#fff; font-size:18px;
