@@ -154,5 +154,4 @@ footer.note{ text-align:center; font-size:11px; color:var(--slate2); padding:14p
   .print-ticket .pt-line{ border-top:2px dashed #000; margin:10px 0; }
   .print-ticket .pt-row{ display:flex; justify-content:space-between; font-size:18px; margin:6px 0; line-height:1.3; }
   .print-ticket .pt-row span:first-child{ font-weight:600; padding-right:8px; }
-  .print-ticket div[style*="pageBreakAfter"]{ page-break-after:always; }
 }

@@ -402,7 +402,7 @@ function CheckInView() {
         {/* Hidden except when printing — rendered twice for the two copies. */}
         <div className="print-ticket">
           {[0, 1].map((copy) => (
-            <div key={copy} style={{ pageBreakAfter: copy === 0 ? "always" : "auto", breakAfter: copy === 0 ? "page" : "auto" }}>
+            <div key={copy} style={{ marginBottom: copy === 0 ? "20mm" : 0 }}>
               <div className="pt-center pt-big">{ticket.garage?.name || "Garage"}</div>
               <div className="pt-center" style={{ fontSize: 17, fontWeight: 600 }}>{copy === 0 ? "CUSTOMER COPY" : "GARAGE COPY"}</div>
               <div className="pt-line"></div>
@@ -419,6 +419,11 @@ function CheckInView() {
               {ticket.photoUrl && (
                 <div className="pt-center" style={{ marginTop: "4mm" }}>
                   <img src={ticket.photoUrl} alt="" style={{ width: "100%", maxHeight: "60mm", objectFit: "cover" }} />
+                </div>
+              )}
+              {copy === 0 && (
+                <div style={{ textAlign: "center", marginTop: "8mm", borderTop: "2px dashed #000", paddingTop: "4mm", fontSize: 12, letterSpacing: "0.1em" }}>
+                  ✂ CUT HERE
                 </div>
               )}
             </div>
