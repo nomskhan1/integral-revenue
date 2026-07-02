@@ -381,6 +381,8 @@ function CheckInView() {
     }
   }
 
+  const [btStatus, setBtStatus] = useState("");
+  const [btError, setBtError] = useState("");
   const [showPrinterPicker, setShowPrinterPicker] = useState(false);
   const [manualMac, setManualMac] = useState("");
 
