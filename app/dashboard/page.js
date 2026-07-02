@@ -381,8 +381,64 @@ function CheckInView() {
     }
   }
 
-  const [btStatus, setBtStatus] = useState("");
-  const [btError, setBtError] = useState("");
+  const [showPrinterPicker, setShowPrinterPicker] = useState(false);
+  const [manualMac, setManualMac] = useState("");
+
+  function formatMac(val) {
+    // Auto-format as XX:XX:XX:XX:XX:XX
+    const clean = val.replace(/[^0-9A-Fa-f]/g, "").toUpperCase().slice(0, 12);
+    return clean.match(/.{1,2}/g)?.join(":") || clean;
+  }
+
+  async function handleBluetoothPrint() {
+    setBtError("");
+    setBtStatus("connecting");
+    try {
+      const { CapacitorThermalPrinter } = await import("capacitor-thermal-printer");
+      let address = localStorage.getItem("bt_printer_address");
+
+      if (!address) {
+        // Show the manual MAC picker instead of scanning.
+        setBtStatus("");
+        setShowPrinterPicker(true);
+        return;
+      }
+
+      setBtStatus("connecting");
+      const conn = await CapacitorThermalPrinter.connect({ address });
+      if (!conn) {
+        localStorage.removeItem("bt_printer_address");
+        setBtError("Couldn't connect. Make sure printer is on, then tap Reset printer and try again.");
+        setBtStatus("error");
+        return;
+      }
+
+      setBtStatus("printing");
+      const printer = CapacitorThermalPrinter.useConnection(conn.connectionId);
+      await printer.begin().text(buildEscPosTicket(ticket, "CUSTOMER COPY")).cutPaper().write();
+      await new Promise(r => setTimeout(r, 800));
+      await printer.begin().text(buildEscPosTicket(ticket, "GARAGE COPY")).cutPaper().write();
+      setBtStatus("done");
+      setTimeout(() => setBtStatus(""), 3000);
+    } catch (err) {
+      console.error("Bluetooth print error:", err);
+      localStorage.removeItem("bt_printer_address");
+      setBtError("Print failed: " + (err.message || "Unknown error") + " — tap Reset printer and try again.");
+      setBtStatus("error");
+    }
+  }
+
+  async function savePrinterAndPrint() {
+    const mac = manualMac.replace(/[^0-9A-Fa-f:]/g, "").toUpperCase();
+    if (mac.length < 17) {
+      setBtError("Please enter a valid MAC address (e.g. AA:BB:CC:DD:EE:FF)");
+      return;
+    }
+    localStorage.setItem("bt_printer_address", mac);
+    setShowPrinterPicker(false);
+    setManualMac("");
+    handleBluetoothPrint();
+  }
 
   function buildEscPosTicket(t, copyLabel) {
     const LF = "\n";
@@ -526,6 +582,32 @@ function CheckInView() {
             </button>
           </div>
         )}
+
+        {showPrinterPicker && (
+          <div className="card" style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Set up Bluetooth Printer</div>
+            <p style={{ fontSize: 12, color: "var(--slate2)", marginBottom: 12 }}>
+              Enter your MUNBYN printer's MAC address. Find it in Android Settings → Bluetooth → tap the printer name → Device details.
+            </p>
+            <div className="field">
+              <label>Printer MAC address</label>
+              <input
+                value={manualMac}
+                onChange={(e) => setManualMac(formatMac(e.target.value))}
+                placeholder="AA:BB:CC:DD:EE:FF"
+                style={{ fontFamily: "monospace", letterSpacing: "0.05em" }}
+                maxLength={17}
+              />
+            </div>
+            <button className="btn btn-primary" onClick={savePrinterAndPrint} disabled={manualMac.length < 17}>
+              Save & Print
+            </button>
+            <button className="btn btn-ghost" onClick={() => { setShowPrinterPicker(false); setBtStatus(""); }} style={{ marginTop: 8 }}>
+              Cancel
+            </button>
+          </div>
+        )}
+
         <button
           className="btn btn-primary"
           onClick={handlePrint}
