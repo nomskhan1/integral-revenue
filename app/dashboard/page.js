@@ -90,13 +90,9 @@ export default function Dashboard() {
     <div className="shell">
       <header className="topbar">
         <div className="brand">
-          {appSettings.logoUrl ? (
-            <img src={appSettings.logoUrl} alt="" className="logo" style={{ height: 36, width: "auto", objectFit: "contain" }} />
-          ) : (
-            <img src="/logo.png" alt="" className="logo" />
-          )}
+          <img src="/logo.png" alt="" className="logo" />
           <div>
-            <span className="mark">{appSettings.companyName || "Integral"}</span>
+            <span className="mark">Integral</span>
             <div style={{ fontSize: 10, color: "var(--slate2)", lineHeight: 1.2 }}>
               {user.garage?.name
                 ? user.garage.name
@@ -104,13 +100,22 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
-        <button
-          className="btn-ghost"
-          style={{ width: "auto", padding: "8px 14px", borderRadius: 20, fontSize: 11 }}
-          onClick={logout}
-        >
-          Sign out
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          {appSettings.logoUrl && (
+            <img
+              src={appSettings.logoUrl}
+              alt="Company logo"
+              style={{ height: 36, maxWidth: 120, objectFit: "contain" }}
+            />
+          )}
+          <button
+            className="btn-ghost"
+            style={{ width: "auto", padding: "8px 14px", borderRadius: 20, fontSize: 11 }}
+            onClick={logout}
+          >
+            Sign out
+          </button>
+        </div>
       </header>
       <main>
         {isOperational && (
