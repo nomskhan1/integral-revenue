@@ -175,6 +175,9 @@ export default function Dashboard() {
             <button className={tab === "branding" ? "active" : ""} onClick={() => setTab("branding")}>
               Branding
             </button>
+            <button className={tab === "vouchers" ? "active" : ""} onClick={() => setTab("vouchers")}>
+              N/C Vouchers
+            </button>
           </div>
         )}
 
@@ -200,6 +203,7 @@ export default function Dashboard() {
         {tab === "ticket-history" && (user.role === "GARAGE_MANAGER" || isAdmin) && <TicketHistoryView user={user} showGarageFilter={isAdmin} />}
         {tab === "daily-closed" && (user.role === "GARAGE_MANAGER" || isAdmin) && <DailyClosedView user={user} showGarageFilter={isAdmin} />}
         {tab === "branding" && isAdmin && <BrandingView settings={appSettings} onSaved={setAppSettings} />}
+        {tab === "vouchers" && (isAdmin || user.role === "GARAGE_MANAGER") && <VouchersView user={user} isAdmin={isAdmin} />}
         {tab === "revenue" && isAdmin && <RevenueDashboard user={user} />}
         {tab === "garages" && (isAdmin || isSuperAdmin) && <GaragesView currentUser={user} />}
         {tab === "users" && (isAdmin || isSuperAdmin) && <UsersView currentUser={user} />}
@@ -537,6 +541,8 @@ function CheckOutView() {
   const [ticket, setTicket] = useState(null);
   const [error, setError] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("");
+  const [voucherCode, setVoucherCode] = useState("");
+  const [voucherStatus, setVoucherStatus] = useState(null); // null | { valid, error, voucher }
   const [paymentNote, setPaymentNote] = useState("");
   const [completing, setCompleting] = useState(false);
   const [completed, setCompleted] = useState(null);
@@ -644,7 +650,7 @@ function CheckOutView() {
     const res = await fetch(`/api/tickets/${ticket.id}/checkout`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ paymentMethod, paymentNote }),
+      body: JSON.stringify({ paymentMethod, paymentNote, voucherCode: paymentMethod === "NC" ? voucherCode : undefined }),
     });
     const data = await res.json();
     setCompleting(false);
@@ -724,7 +730,7 @@ function CheckOutView() {
                 <button
                   key={m.method}
                   type="button"
-                  onClick={() => setPaymentMethod(m.method)}
+                  onClick={() => { setPaymentMethod(m.method); setVoucherCode(""); setVoucherStatus(null); }}
                   style={{
                     padding: "10px 16px", borderRadius: 8, fontSize: 14, cursor: "pointer",
                     background: paymentMethod === m.method ? "var(--brass)" : "var(--navy-2)",
@@ -739,6 +745,41 @@ function CheckOutView() {
             </div>
           )}
         </div>
+
+        {paymentMethod === "NC" && (
+          <div className="field">
+            <label>N/C Voucher code (optional)</label>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                value={voucherCode}
+                onChange={(e) => { setVoucherCode(e.target.value.toUpperCase()); setVoucherStatus(null); }}
+                placeholder="Scan or enter voucher code"
+                style={{ fontFamily: "monospace", letterSpacing: "0.05em", flex: 1 }}
+                maxLength={20}
+              />
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{ width: "auto", padding: "0 14px", flexShrink: 0 }}
+                disabled={!voucherCode.trim()}
+                onClick={async () => {
+                  const res = await fetch(`/api/vouchers/validate?code=${encodeURIComponent(voucherCode.trim())}&garageId=${ticket.garageId}`);
+                  const data = await res.json();
+                  setVoucherStatus(data);
+                }}
+              >
+                Validate
+              </button>
+            </div>
+            {voucherStatus && (
+              <div style={{ marginTop: 6, fontSize: 12, color: voucherStatus.valid ? "var(--green)" : "var(--red)" }}>
+                {voucherStatus.valid ? "✓ Valid voucher — parking will be N/C" : `✗ ${voucherStatus.error}`}
+              </div>
+            )}
+            <div className="field-hint">Leave blank to proceed as N/C without a voucher.</div>
+          </div>
+        )}
+
         <div className="field">
           <label>Payment note (optional)</label>
           <input value={paymentNote} onChange={(e) => setPaymentNote(e.target.value)} placeholder="e.g. last 4 digits, terminal reference" />
@@ -2424,6 +2465,198 @@ function RevenueDashboard({ user }) {
 }
 
 // ---------------- GARAGES (Super Admin / Admin) ----------------
+function printVouchersInPopup(vouchers) {
+  const w = window.open("", "_blank", "width=800,height=900");
+  if (!w) return;
+  const rows = vouchers.map(v => `
+    <div style="display:inline-block;width:220px;border:1px dashed #aaa;border-radius:8px;padding:14px;margin:8px;text-align:center;vertical-align:top;">
+      <div style="font-size:11px;color:#555;margin-bottom:4px;">${v.garage?.name || "Garage"}</div>
+      <canvas id="qr-${v.code}" style="display:block;margin:0 auto 8px;"></canvas>
+      <div style="font-family:monospace;font-size:13px;font-weight:700;letter-spacing:0.1em;">${v.code}</div>
+      ${v.note ? `<div style="font-size:10px;color:#777;margin-top:4px;">${v.note}</div>` : ""}
+      <div style="font-size:9px;color:#aaa;margin-top:4px;">N/C VOUCHER</div>
+    </div>
+  `).join("");
+  w.document.write(`<!DOCTYPE html><html><head>
+    <title>N/C Vouchers</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <style>
+      body { font-family: Arial, sans-serif; padding: 20px; background: #fff; }
+      @media print { @page { margin: 10mm; } }
+    </style>
+  </head><body>
+    <h2 style="margin-bottom:16px;">N/C Vouchers</h2>
+    <div>${rows}</div>
+    <script>
+      window.onload = function() {
+        document.querySelectorAll('canvas').forEach(function(c) {
+          new QRCode(c, { text: c.id.replace('qr-',''), width: 120, height: 120 });
+        });
+        setTimeout(function() { window.print(); }, 600);
+      };
+    </script>
+  </body></html>`);
+  w.document.close();
+}
+
+function VouchersView({ user, isAdmin }) {
+  const [garages, setGarages] = useState([]);
+  const [vouchers, setVouchers] = useState([]);
+  const [garageFilter, setGarageFilter] = useState(user.garageId || "");
+  const [statusFilter, setStatusFilter] = useState("ACTIVE");
+  const [genGarage, setGenGarage] = useState(user.garageId || "");
+  const [genQty, setGenQty] = useState("10");
+  const [genNote, setGenNote] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  useEffect(() => {
+    if (isAdmin) {
+      fetch("/api/garages").then(r => r.json()).then(setGarages);
+    }
+  }, [isAdmin]);
+
+  async function loadVouchers() {
+    const params = new URLSearchParams();
+    if (garageFilter) params.set("garageId", garageFilter);
+    if (statusFilter) params.set("status", statusFilter);
+    const res = await fetch(`/api/vouchers?${params}`);
+    if (res.ok) setVouchers(await res.json());
+  }
+
+  useEffect(() => { loadVouchers(); }, [garageFilter, statusFilter]);
+
+  async function generate() {
+    setError(""); setSuccess(""); setGenerating(true);
+    const res = await fetch("/api/vouchers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ garageId: genGarage, quantity: parseInt(genQty), note: genNote }),
+    });
+    const data = await res.json();
+    setGenerating(false);
+    if (!res.ok) { setError(data.error); return; }
+    setSuccess(`${data.length} voucher${data.length === 1 ? "" : "s"} created.`);
+    setGenNote(""); loadVouchers();
+    // Auto-print the newly created vouchers
+    printVouchersInPopup(data);
+  }
+
+  async function cancelVoucher(id) {
+    if (!window.confirm("Cancel this voucher? It can no longer be used.")) return;
+    const res = await fetch(`/api/vouchers/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "cancel" }),
+    });
+    if (res.ok) loadVouchers();
+  }
+
+  const activeCount = vouchers.filter(v => v.status === "ACTIVE").length;
+  const usedCount = vouchers.filter(v => v.status === "USED").length;
+
+  return (
+    <>
+      <h1 className="title">N/C Vouchers</h1>
+
+      {/* Generate form */}
+      <div className="card" style={{ marginBottom: 20 }}>
+        <div style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--brass-light)", marginBottom: 14 }}>
+          Generate New Vouchers
+        </div>
+        {error && <div className="error-box" style={{ marginBottom: 10 }}>{error}</div>}
+        {success && <div style={{ color: "var(--green)", fontSize: 13, marginBottom: 10 }}>{success}</div>}
+        {isAdmin && (
+          <div className="field">
+            <label>Garage</label>
+            <select value={genGarage} onChange={e => setGenGarage(e.target.value)}>
+              <option value="">— select garage —</option>
+              {garages.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+            </select>
+          </div>
+        )}
+        <div style={{ display: "flex", gap: 12 }}>
+          <div className="field" style={{ flex: 1 }}>
+            <label>Quantity</label>
+            <input type="number" min={1} max={500} value={genQty} onChange={e => setGenQty(e.target.value)} />
+          </div>
+          <div className="field" style={{ flex: 2 }}>
+            <label>Label / note (optional)</label>
+            <input value={genNote} onChange={e => setGenNote(e.target.value)} placeholder="e.g. Resident Discount, Monthly Pass" />
+          </div>
+        </div>
+        <button className="btn btn-primary" onClick={generate} disabled={generating || !genGarage || !genQty}>
+          {generating ? "Generating..." : `Generate & Print ${genQty || ""} Vouchers`}
+        </button>
+      </div>
+
+      {/* Stats */}
+      <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
+        {[["Active", activeCount, "var(--green)"], ["Used", usedCount, "var(--slate2)"]].map(([label, count, color]) => (
+          <div key={label} className="card" style={{ flex: 1, textAlign: "center", padding: "12px 8px" }}>
+            <div style={{ fontSize: 26, fontWeight: 700, color }}>{count}</div>
+            <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--slate2)" }}>{label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Filters */}
+      <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
+        {isAdmin && (
+          <select value={garageFilter} onChange={e => setGarageFilter(e.target.value)} style={{ flex: 1 }}>
+            <option value="">All garages</option>
+            {garages.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+          </select>
+        )}
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ flex: 1 }}>
+          <option value="">All statuses</option>
+          <option value="ACTIVE">Active</option>
+          <option value="USED">Used</option>
+          <option value="CANCELLED">Cancelled</option>
+        </select>
+        {vouchers.filter(v => v.status === "ACTIVE").length > 0 && (
+          <button className="btn btn-ghost" style={{ width: "auto", padding: "0 14px" }}
+            onClick={() => printVouchersInPopup(vouchers.filter(v => v.status === "ACTIVE"))}>
+            Print All Active
+          </button>
+        )}
+      </div>
+
+      {/* Voucher list */}
+      {vouchers.length === 0 ? (
+        <div className="empty-state">No vouchers found.</div>
+      ) : vouchers.map(v => (
+        <div key={v.id} className="list-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <div style={{ fontFamily: "monospace", fontWeight: 700, fontSize: 15, letterSpacing: "0.08em" }}>{v.code}</div>
+            <div style={{ fontSize: 11, color: "var(--slate2)" }}>
+              {v.garage?.name} · Created {new Date(v.createdAt).toLocaleDateString()} by {v.createdBy?.name}
+              {v.note && ` · ${v.note}`}
+            </div>
+            {v.status === "USED" && <div style={{ fontSize: 11, color: "var(--slate2)" }}>Used {new Date(v.usedAt).toLocaleString()}</div>}
+          </div>
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <span style={{
+              fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", padding: "3px 8px", borderRadius: 12,
+              background: v.status === "ACTIVE" ? "var(--green)" : v.status === "USED" ? "var(--navy-2)" : "var(--red)",
+              color: v.status === "ACTIVE" ? "var(--navy)" : "var(--cream)",
+            }}>{v.status}</span>
+            {v.status === "ACTIVE" && (
+              <>
+                <button style={{ background: "none", border: "none", color: "var(--brass-light)", fontSize: 11, cursor: "pointer" }}
+                  onClick={() => printVouchersInPopup([v])}>Reprint</button>
+                <button style={{ background: "none", border: "none", color: "var(--red)", fontSize: 11, cursor: "pointer" }}
+                  onClick={() => cancelVoucher(v.id)}>Cancel</button>
+              </>
+            )}
+          </div>
+        </div>
+      ))}
+    </>
+  );
+}
+
 function BrandingView({ settings, onSaved }) {
   const [companyName, setCompanyName] = useState(settings.companyName || "");
   const [logoPreview, setLogoPreview] = useState(settings.logoUrl || null);

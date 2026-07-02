@@ -3,17 +3,12 @@ const { getSessionFromRequest } = require("../../../../../lib/auth");
 const { calculateFee } = require("../../../../../lib/pricing");
 
 const VALID_METHODS = ["CASH", "CREDIT_CARD", "COUPON", "CHARGE_BACK", "NC", "LOANER"];
-
-// N/C and Loaner are complimentary — no fee, no revenue impact.
-// They're tracked by ticket count only on the shift report.
 const ZERO_FEE_METHODS = ["NC", "LOANER"];
-
 const METHOD_TO_FIELD = {
   CASH: "cashRevenue",
   CREDIT_CARD: "creditCardRevenue",
   COUPON: "couponRevenue",
   CHARGE_BACK: "chargeBackRevenue",
-  // NC and LOANER intentionally omitted — they don't update any revenue field.
 };
 
 function todayStr() {
@@ -30,7 +25,7 @@ async function POST(req, { params }) {
 
   const { id } = params;
   const body = await req.json();
-  const { paymentMethod, paymentNote } = body || {};
+  const { paymentMethod, paymentNote, voucherCode } = body || {};
 
   if (!VALID_METHODS.includes(paymentMethod)) {
     return new Response(JSON.stringify({ error: "Please select a valid payment method." }), { status: 400 });
@@ -49,10 +44,28 @@ async function POST(req, { params }) {
     return new Response(JSON.stringify({ error: "This ticket has already been checked out or cancelled." }), { status: 409 });
   }
 
+  // Validate voucher code if provided with N/C payment
+  let voucher = null;
+  if (paymentMethod === "NC" && voucherCode) {
+    const code = voucherCode.trim().toUpperCase();
+    voucher = await prisma.nCVoucher.findUnique({ where: { code } });
+    if (!voucher) {
+      return new Response(JSON.stringify({ error: "Voucher not found. Check the code and try again." }), { status: 400 });
+    }
+    if (voucher.status === "USED") {
+      return new Response(JSON.stringify({ error: "This voucher has already been used." }), { status: 400 });
+    }
+    if (voucher.status === "CANCELLED") {
+      return new Response(JSON.stringify({ error: "This voucher has been cancelled." }), { status: 400 });
+    }
+    if (voucher.garageId !== session.garageId) {
+      return new Response(JSON.stringify({ error: `This voucher is only valid at ${ticket.garage.name}.` }), { status: 400 });
+    }
+  }
+
   const checkOutTime = new Date();
   const durationMinutes = Math.max(1, Math.round((checkOutTime - new Date(ticket.checkInTime)) / 60000));
 
-  // N/C and Loaner are always $0 — skip fee calculation entirely.
   const isZeroFee = ZERO_FEE_METHODS.includes(paymentMethod);
   const feeAmount = isZeroFee ? 0 : (await calculateFee(ticket.garage, durationMinutes)).feeAmount;
 
@@ -65,7 +78,6 @@ async function POST(req, { params }) {
     });
   }
 
-  // Only update the shift report revenue if this method actually has a dollar value.
   if (!isZeroFee && METHOD_TO_FIELD[paymentMethod]) {
     const revenueField = METHOD_TO_FIELD[paymentMethod];
     const newRevenueValue = (shiftReport[revenueField] || 0) + feeAmount;
@@ -97,6 +109,14 @@ async function POST(req, { params }) {
     },
     include: { garage: { select: { name: true } } },
   });
+
+  // Mark voucher as used if one was provided
+  if (voucher) {
+    await prisma.nCVoucher.update({
+      where: { id: voucher.id },
+      data: { status: "USED", usedByTicketId: updatedTicket.id, usedAt: checkOutTime },
+    });
+  }
 
   return new Response(JSON.stringify(updatedTicket), { status: 200 });
 }

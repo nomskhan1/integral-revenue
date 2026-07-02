@@ -30,6 +30,7 @@ model User {
   garage   Garage? @relation(fields: [garageId], references: [id])
 
   shiftReports   ShiftReport[] @relation("SubmittedBy")
+  ncVouchers     NCVoucher[]
   checkedInTickets  Ticket[]   @relation("CheckedInBy")
   checkedOutTickets Ticket[]   @relation("CheckedOutBy")
 }
@@ -48,6 +49,22 @@ model Garage {
   rateTiers    RateTier[]
   paymentMethods GaragePaymentMethod[]
   shiftTemplates ShiftTemplate[]
+  ncVouchers   NCVoucher[]
+}
+
+model NCVoucher {
+  id             String    @id @default(cuid())
+  code           String    @unique
+  garageId       String
+  garage         Garage    @relation(fields: [garageId], references: [id])
+  status         String    @default("ACTIVE") // ACTIVE | USED | CANCELLED
+  note           String?
+  createdById    String
+  createdBy      User      @relation(fields: [createdById], references: [id])
+  usedByTicketId String?
+  usedAt         DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 }
 
 model AppSetting {
