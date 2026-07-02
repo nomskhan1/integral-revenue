@@ -413,27 +413,48 @@ function CheckInView() {
     try {
       const { CapacitorThermalPrinter } = await import("capacitor-thermal-printer");
       let address = localStorage.getItem("bt_printer_address");
+
       if (!address) {
         setBtStatus("scanning");
-        const result = await CapacitorThermalPrinter.startScan({ timeout: 5 });
-        const devices = result?.devices || [];
+        // Get already-paired Bluetooth devices instead of scanning for new ones.
+        // Paired printers don't need to be actively advertising to be found.
+        let devices = [];
+        try {
+          const result = await CapacitorThermalPrinter.getPairedDevices();
+          devices = result?.devices || [];
+        } catch {
+          // Fallback to startScan if getPairedDevices isn't available.
+          const result = await CapacitorThermalPrinter.startScan({ timeout: 8 });
+          devices = result?.devices || [];
+        }
+
         if (devices.length === 0) {
-          setBtError("No paired Bluetooth printers found. Make sure your MUNBYN is on and paired in Android Bluetooth settings.");
+          setBtError("No paired Bluetooth devices found. Make sure your MUNBYN is paired in Android Bluetooth settings, then try again.");
           setBtStatus("error");
           return;
         }
-        // Auto-pick first device — MUNBYN will appear as "MUNBYN-XXXXX"
-        const munbyn = devices.find(d => d.name?.toUpperCase().includes("MUNBYN")) || devices[0];
+
+        // Pick the MUNBYN printer — it usually appears as "MUNBYN-XXXXX" or similar.
+        const munbyn = devices.find(d =>
+          d.name?.toUpperCase().includes("MUNBYN") ||
+          d.name?.toUpperCase().includes("POS") ||
+          d.name?.toUpperCase().includes("PRINTER")
+        ) || devices[0];
+
         address = munbyn.address;
         localStorage.setItem("bt_printer_address", address);
         localStorage.setItem("bt_printer_name", munbyn.name || address);
       }
+
+      setBtStatus("connecting");
       const conn = await CapacitorThermalPrinter.connect({ address });
       if (!conn) {
-        setBtError("Couldn't connect to printer. Make sure it's powered on and in range.");
+        localStorage.removeItem("bt_printer_address");
+        setBtError("Couldn't connect to printer. Make sure it's powered on and in range, then try again.");
         setBtStatus("error");
         return;
       }
+
       setBtStatus("printing");
       const printer = CapacitorThermalPrinter.useConnection(conn.connectionId);
       await printer.begin().text(buildEscPosTicket(ticket, "CUSTOMER COPY")).cutPaper().write();
@@ -443,9 +464,8 @@ function CheckInView() {
       setTimeout(() => setBtStatus(""), 3000);
     } catch (err) {
       console.error("Bluetooth print error:", err);
-      // Clear saved address so next attempt re-scans
-      if (btStatus === "connecting") localStorage.removeItem("bt_printer_address");
-      setBtError("Print failed: " + (err.message || "Unknown error"));
+      localStorage.removeItem("bt_printer_address");
+      setBtError("Print failed: " + (err.message || "Unknown error") + " — tap 'Reset printer' and try again.");
       setBtStatus("error");
     }
   }
