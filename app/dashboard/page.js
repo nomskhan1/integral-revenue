@@ -804,45 +804,62 @@ function CheckOutView() {
 }
 
 // ---------------- ACTIVE TICKETS ----------------
-function ReprintTicket({ ticket }) {
-  if (!ticket) return null;
-  return (
-    <div className="print-ticket reprint-ticket">
-      {[0, 1].map((copy) => (
-        <div key={copy} style={{ marginBottom: copy === 0 ? "20mm" : 0 }}>
-          <div className="pt-center pt-big">{ticket.garage?.name || "Garage"}</div>
-          <div className="pt-center" style={{ fontSize: 17, fontWeight: 600 }}>{copy === 0 ? "CUSTOMER COPY" : "GARAGE COPY"}</div>
-          <div className="pt-line"></div>
-          <div className="pt-center" style={{ fontSize: 32, fontWeight: 700 }}>#{ticket.ticketNumber}</div>
-          {ticket.qrDataUrl && <div className="pt-center"><img src={ticket.qrDataUrl} alt="" style={{ width: "140px" }} /></div>}
-          <div className="pt-line"></div>
-          <div className="pt-row"><span>Checked in</span><span>{new Date(ticket.checkInTime).toLocaleString()}</span></div>
-          {ticket.apartmentNumber && <div className="pt-row"><span>Unit</span><span>{ticket.apartmentNumber}</span></div>}
-          {ticket.licensePlate && <div className="pt-row"><span>Plate</span><span>{ticket.licensePlate}</span></div>}
-          {(ticket.vehicleMake || ticket.vehicleModel) && (
-            <div className="pt-row"><span>Vehicle</span><span>{[ticket.vehicleColor, ticket.vehicleMake, ticket.vehicleModel].filter(Boolean).join(" ")}</span></div>
-          )}
-          {ticket.parkingLocation && <div className="pt-row"><span>Location</span><span>{ticket.parkingLocation}</span></div>}
-          {ticket.photoUrl && (
-            <div className="pt-center" style={{ marginTop: "4mm" }}>
-              <img src={ticket.photoUrl} alt="" style={{ width: "100%", maxHeight: "60mm", objectFit: "cover" }} />
-            </div>
-          )}
-          {copy === 0 && (
-            <div style={{ textAlign: "center", marginTop: "8mm", borderTop: "2px dashed #000", paddingTop: "4mm", fontSize: 12, letterSpacing: "0.1em" }}>
-              ✂ CUT HERE
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
-  );
+function printTicketInPopup(ticket) {
+  const w = window.open("", "_blank", "width=400,height=800");
+  if (!w) { window.print(); return; }
+
+  const checkIn = new Date(ticket.checkInTime).toLocaleString();
+  const veh = [ticket.vehicleColor, ticket.vehicleMake, ticket.vehicleModel].filter(Boolean).join(" ");
+
+  function copy(label) {
+    return `
+      <div style="font-family:Courier New,monospace;font-size:18px;width:80mm;padding:4mm;color:#000;">
+        <div style="text-align:center;font-size:30px;font-weight:700;">${ticket.garage?.name || "Garage"}</div>
+        <div style="text-align:center;font-size:17px;font-weight:600;">${label}</div>
+        <div style="border-top:2px dashed #000;margin:10px 0;"></div>
+        <div style="text-align:center;font-size:32px;font-weight:700;">#${ticket.ticketNumber}</div>
+        ${ticket.qrDataUrl ? `<div style="text-align:center;"><img src="${ticket.qrDataUrl}" style="width:140px;"/></div>` : ""}
+        <div style="border-top:2px dashed #000;margin:10px 0;"></div>
+        <div style="display:flex;justify-content:space-between;margin:6px 0;"><span style="font-weight:600;">Checked in</span><span>${checkIn}</span></div>
+        ${ticket.apartmentNumber ? `<div style="display:flex;justify-content:space-between;margin:6px 0;"><span style="font-weight:600;">Unit</span><span>${ticket.apartmentNumber}</span></div>` : ""}
+        ${ticket.licensePlate ? `<div style="display:flex;justify-content:space-between;margin:6px 0;"><span style="font-weight:600;">Plate</span><span>${ticket.licensePlate}</span></div>` : ""}
+        ${veh ? `<div style="display:flex;justify-content:space-between;margin:6px 0;"><span style="font-weight:600;">Vehicle</span><span>${veh}</span></div>` : ""}
+        ${ticket.parkingLocation ? `<div style="display:flex;justify-content:space-between;margin:6px 0;"><span style="font-weight:600;">Location</span><span>${ticket.parkingLocation}</span></div>` : ""}
+        ${ticket.photoUrl ? `<div style="text-align:center;margin-top:4mm;"><img src="${ticket.photoUrl}" style="width:100%;max-height:60mm;object-fit:cover;"/></div>` : ""}
+      </div>
+    `;
+  }
+
+  w.document.write(`
+    <!DOCTYPE html><html><head>
+    <title>Ticket #${ticket.ticketNumber}</title>
+    <style>
+      @media print { @page { margin: 0; } body { margin: 0; } }
+      body { margin: 0; background: #fff; }
+    </style>
+    </head><body>
+      ${copy("CUSTOMER COPY")}
+      <div style="text-align:center;border-top:2px dashed #000;padding:4mm 0;font-size:12px;letter-spacing:0.1em;">✂ CUT HERE</div>
+      ${copy("GARAGE COPY")}
+      <script>
+        window.onload = function() {
+          window.print();
+          window.onafterprint = function() { window.close(); };
+          setTimeout(function() { window.close(); }, 5000);
+        };
+      </script>
+    </body></html>
+  `);
+  w.document.close();
 }
+
+function ReprintTicket({ ticket }) { return null; }
+
+
 
 function ActiveTicketsView() {
   const [tickets, setTickets] = useState([]);
   const [error, setError] = useState("");
-  const [reprinting, setReprinting] = useState(null);
 
   const load = useCallback(async () => {
     const res = await fetch("/api/tickets?status=PARKED");
@@ -864,11 +881,7 @@ function ActiveTicketsView() {
   }
 
   function handleReprint(t) {
-    setReprinting(t);
-    setTimeout(() => {
-      window.print();
-      setTimeout(() => setReprinting(null), 500);
-    }, 100);
+    printTicketInPopup(t);
   }
 
   return (
@@ -878,7 +891,6 @@ function ActiveTicketsView() {
         <span className="count-badge">{tickets.length} parked</span>
       </div>
       {error && <div className="error-box">{error}</div>}
-      {reprinting && <ReprintTicket ticket={reprinting} />}
       {tickets.length === 0 ? (
         <div className="empty-state">
           <div className="big">No vehicles currently parked</div>
@@ -932,14 +944,9 @@ function TicketHistoryView({ user, showGarageFilter }) {
   const [statusFilter, setStatusFilter] = useState("");
   const [garageFilter, setGarageFilter] = useState("");
   const [viewing, setViewing] = useState(null);
-  const [reprinting, setReprinting] = useState(false);
 
   function handleReprint(t) {
-    setReprinting(true);
-    setTimeout(() => {
-      window.print();
-      setTimeout(() => setReprinting(false), 500);
-    }, 100);
+    printTicketInPopup(t);
   }
 
   const loadGarages = useCallback(async () => {
@@ -1033,7 +1040,6 @@ function TicketHistoryView({ user, showGarageFilter }) {
             <p style={{ marginTop: 10, fontSize: 13, color: "var(--slate2)" }}>Note: {viewing.paymentNote}</p>
           )}
         </div>
-        {reprinting && <ReprintTicket ticket={viewing} />}
         <button className="btn btn-primary" onClick={() => handleReprint(viewing)} style={{ marginBottom: 10 }}>
           Reprint ticket
         </button>
@@ -1256,7 +1262,6 @@ function DailyClosedView({ user, showGarageFilter }) {
             <p style={{ marginTop: 10, fontSize: 13, color: "var(--slate2)" }}>Note: {viewing.paymentNote}</p>
           )}
         </div>
-        {reprinting && <ReprintTicket ticket={viewing} />}
         <button className="btn btn-primary" onClick={() => handleReprint(viewing)} style={{ marginBottom: 10 }}>
           Reprint ticket
         </button>
