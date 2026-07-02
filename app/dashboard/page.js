@@ -804,9 +804,45 @@ function CheckOutView() {
 }
 
 // ---------------- ACTIVE TICKETS ----------------
+function ReprintTicket({ ticket }) {
+  if (!ticket) return null;
+  return (
+    <div className="print-ticket">
+      {[0, 1].map((copy) => (
+        <div key={copy} style={{ marginBottom: copy === 0 ? "20mm" : 0 }}>
+          <div className="pt-center pt-big">{ticket.garage?.name || "Garage"}</div>
+          <div className="pt-center" style={{ fontSize: 17, fontWeight: 600 }}>{copy === 0 ? "CUSTOMER COPY" : "GARAGE COPY"}</div>
+          <div className="pt-line"></div>
+          <div className="pt-center" style={{ fontSize: 32, fontWeight: 700 }}>#{ticket.ticketNumber}</div>
+          {ticket.qrDataUrl && <div className="pt-center"><img src={ticket.qrDataUrl} alt="" style={{ width: "140px" }} /></div>}
+          <div className="pt-line"></div>
+          <div className="pt-row"><span>Checked in</span><span>{new Date(ticket.checkInTime).toLocaleString()}</span></div>
+          {ticket.apartmentNumber && <div className="pt-row"><span>Unit</span><span>{ticket.apartmentNumber}</span></div>}
+          {ticket.licensePlate && <div className="pt-row"><span>Plate</span><span>{ticket.licensePlate}</span></div>}
+          {(ticket.vehicleMake || ticket.vehicleModel) && (
+            <div className="pt-row"><span>Vehicle</span><span>{[ticket.vehicleColor, ticket.vehicleMake, ticket.vehicleModel].filter(Boolean).join(" ")}</span></div>
+          )}
+          {ticket.parkingLocation && <div className="pt-row"><span>Location</span><span>{ticket.parkingLocation}</span></div>}
+          {ticket.photoUrl && (
+            <div className="pt-center" style={{ marginTop: "4mm" }}>
+              <img src={ticket.photoUrl} alt="" style={{ width: "100%", maxHeight: "60mm", objectFit: "cover" }} />
+            </div>
+          )}
+          {copy === 0 && (
+            <div style={{ textAlign: "center", marginTop: "8mm", borderTop: "2px dashed #000", paddingTop: "4mm", fontSize: 12, letterSpacing: "0.1em" }}>
+              ✂ CUT HERE
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ActiveTicketsView() {
   const [tickets, setTickets] = useState([]);
   const [error, setError] = useState("");
+  const [reprinting, setReprinting] = useState(null);
 
   const load = useCallback(async () => {
     const res = await fetch("/api/tickets?status=PARKED");
@@ -827,6 +863,14 @@ function ActiveTicketsView() {
     load();
   }
 
+  function handleReprint(t) {
+    setReprinting(t);
+    setTimeout(() => {
+      window.print();
+      setTimeout(() => setReprinting(null), 500);
+    }, 100);
+  }
+
   return (
     <>
       <div className="queue-header">
@@ -834,6 +878,7 @@ function ActiveTicketsView() {
         <span className="count-badge">{tickets.length} parked</span>
       </div>
       {error && <div className="error-box">{error}</div>}
+      {reprinting && <ReprintTicket ticket={reprinting} />}
       {tickets.length === 0 ? (
         <div className="empty-state">
           <div className="big">No vehicles currently parked</div>
@@ -853,13 +898,21 @@ function ActiveTicketsView() {
                   Checked in {new Date(t.checkInTime).toLocaleString()}
                 </div>
               </div>
-              <button
-                className="role-tag"
-                style={{ background: "none", cursor: "pointer", color: "var(--red)", height: "fit-content" }}
-                onClick={() => { if (window.confirm(`Cancel ticket #${t.ticketNumber}?`)) cancelTicket(t.id); }}
-              >
-                Cancel
-              </button>
+              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                <button
+                  style={{ background: "none", border: "none", color: "var(--brass-light)", fontSize: 11, cursor: "pointer", textTransform: "uppercase" }}
+                  onClick={() => handleReprint(t)}
+                >
+                  Reprint
+                </button>
+                <button
+                  className="role-tag"
+                  style={{ background: "none", cursor: "pointer", color: "var(--red)", height: "fit-content" }}
+                  onClick={() => { if (window.confirm(`Cancel ticket #${t.ticketNumber}?`)) cancelTicket(t.id); }}
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           </div>
         ))
@@ -879,6 +932,15 @@ function TicketHistoryView({ user, showGarageFilter }) {
   const [statusFilter, setStatusFilter] = useState("");
   const [garageFilter, setGarageFilter] = useState("");
   const [viewing, setViewing] = useState(null);
+  const [reprinting, setReprinting] = useState(false);
+
+  function handleReprint(t) {
+    setReprinting(true);
+    setTimeout(() => {
+      window.print();
+      setTimeout(() => setReprinting(false), 500);
+    }, 100);
+  }
 
   const loadGarages = useCallback(async () => {
     if (!showGarageFilter) return;
@@ -971,6 +1033,10 @@ function TicketHistoryView({ user, showGarageFilter }) {
             <p style={{ marginTop: 10, fontSize: 13, color: "var(--slate2)" }}>Note: {viewing.paymentNote}</p>
           )}
         </div>
+        {reprinting && <ReprintTicket ticket={viewing} />}
+        <button className="btn btn-primary" onClick={() => handleReprint(viewing)} style={{ marginBottom: 10 }}>
+          Reprint ticket
+        </button>
         <button className="btn btn-ghost" onClick={() => setViewing(null)}>Back</button>
       </>
     );
@@ -1190,6 +1256,10 @@ function DailyClosedView({ user, showGarageFilter }) {
             <p style={{ marginTop: 10, fontSize: 13, color: "var(--slate2)" }}>Note: {viewing.paymentNote}</p>
           )}
         </div>
+        {reprinting && <ReprintTicket ticket={viewing} />}
+        <button className="btn btn-primary" onClick={() => handleReprint(viewing)} style={{ marginBottom: 10 }}>
+          Reprint ticket
+        </button>
         <button className="btn btn-ghost" onClick={() => setViewing(null)}>Back</button>
       </>
     );
