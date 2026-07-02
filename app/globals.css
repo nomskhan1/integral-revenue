@@ -149,6 +149,10 @@ footer.note{ text-align:center; font-size:11px; color:var(--slate2); padding:14p
     display:block; position:absolute; top:0; left:0; width:80mm;
     padding:4mm; font-family:"Courier New", monospace; color:#000; background:#fff; font-size:18px;
   }
+  /* When reprinting from history/active list — hide the check-in print-ticket
+     and show only the reprint-ticket div */
+  body:has(.reprint-ticket) .print-ticket:not(.reprint-ticket){ display:none !important; visibility:hidden !important; }
+  body:has(.reprint-ticket) .reprint-ticket, body:has(.reprint-ticket) .reprint-ticket *{ visibility:visible; }
   .print-ticket .pt-center{ text-align:center; }
   .print-ticket .pt-big{ font-size:30px; font-weight:700; }
   .print-ticket .pt-line{ border-top:2px dashed #000; margin:10px 0; }

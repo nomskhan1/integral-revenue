@@ -807,7 +807,7 @@ function CheckOutView() {
 function ReprintTicket({ ticket }) {
   if (!ticket) return null;
   return (
-    <div className="print-ticket">
+    <div className="print-ticket reprint-ticket">
       {[0, 1].map((copy) => (
         <div key={copy} style={{ marginBottom: copy === 0 ? "20mm" : 0 }}>
           <div className="pt-center pt-big">{ticket.garage?.name || "Garage"}</div>
