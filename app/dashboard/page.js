@@ -810,6 +810,7 @@ function printTicketInPopup(ticket) {
 
   const checkIn = new Date(ticket.checkInTime).toLocaleString();
   const veh = [ticket.vehicleColor, ticket.vehicleMake, ticket.vehicleModel].filter(Boolean).join(" ");
+  const qrToken = ticket.qrToken || ticket.ticketNumber;
 
   function copy(label) {
     return `
@@ -818,7 +819,7 @@ function printTicketInPopup(ticket) {
         <div style="text-align:center;font-size:17px;font-weight:600;">${label}</div>
         <div style="border-top:2px dashed #000;margin:10px 0;"></div>
         <div style="text-align:center;font-size:32px;font-weight:700;">#${ticket.ticketNumber}</div>
-        ${ticket.qrDataUrl ? `<div style="text-align:center;"><img src="${ticket.qrDataUrl}" style="width:140px;"/></div>` : ""}
+        <div style="text-align:center;"><canvas id="qr-${label.replace(/\s/g,'')}"></canvas></div>
         <div style="border-top:2px dashed #000;margin:10px 0;"></div>
         <div style="display:flex;justify-content:space-between;margin:6px 0;"><span style="font-weight:600;">Checked in</span><span>${checkIn}</span></div>
         ${ticket.apartmentNumber ? `<div style="display:flex;justify-content:space-between;margin:6px 0;"><span style="font-weight:600;">Unit</span><span>${ticket.apartmentNumber}</span></div>` : ""}
@@ -833,6 +834,7 @@ function printTicketInPopup(ticket) {
   w.document.write(`
     <!DOCTYPE html><html><head>
     <title>Ticket #${ticket.ticketNumber}</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <style>
       @media print { @page { margin: 0; } body { margin: 0; } }
       body { margin: 0; background: #fff; }
@@ -843,9 +845,16 @@ function printTicketInPopup(ticket) {
       ${copy("GARAGE COPY")}
       <script>
         window.onload = function() {
-          window.print();
-          window.onafterprint = function() { window.close(); };
-          setTimeout(function() { window.close(); }, 5000);
+          var canvases = document.querySelectorAll('canvas');
+          var token = ${JSON.stringify(qrToken)};
+          canvases.forEach(function(canvas) {
+            new QRCode(canvas, { text: token, width: 140, height: 140 });
+          });
+          setTimeout(function() {
+            window.print();
+            window.onafterprint = function() { window.close(); };
+            setTimeout(function() { window.close(); }, 5000);
+          }, 600);
         };
       </script>
     </body></html>
