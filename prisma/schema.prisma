@@ -50,6 +50,13 @@ model Garage {
   shiftTemplates ShiftTemplate[]
 }
 
+model AppSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
 model ShiftTemplate {
   id        String   @id @default(cuid())
   garageId  String

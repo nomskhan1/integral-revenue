@@ -51,6 +51,7 @@ export default function Dashboard() {
   const router = useRouter();
   const [user, setUser] = useState(undefined);
   const [tab, setTab] = useState("");
+  const [appSettings, setAppSettings] = useState({});
   const [showPasswordPanel, setShowPasswordPanel] = useState(false);
 
   useEffect(() => {
@@ -66,6 +67,11 @@ export default function Dashboard() {
           else setTab("revenue");
         }
       });
+    // Load branding settings (logo, company name) for all roles.
+    fetch("/api/settings")
+      .then((r) => r.json())
+      .then((s) => { if (s && !s.error) setAppSettings(s); })
+      .catch(() => {});
   }, [router]);
 
   async function logout() {
@@ -84,9 +90,19 @@ export default function Dashboard() {
     <div className="shell">
       <header className="topbar">
         <div className="brand">
-          <img src="/logo.png" alt="" className="logo" />
-          <span className="mark">Integral</span>
-          <span className="sub">{user.role.replace("_", " ")}</span>
+          {appSettings.logoUrl ? (
+            <img src={appSettings.logoUrl} alt="" className="logo" style={{ height: 36, width: "auto", objectFit: "contain" }} />
+          ) : (
+            <img src="/logo.png" alt="" className="logo" />
+          )}
+          <div>
+            <span className="mark">{appSettings.companyName || "Integral"}</span>
+            <div style={{ fontSize: 10, color: "var(--slate2)", lineHeight: 1.2 }}>
+              {user.garage?.name
+                ? user.garage.name
+                : user.role.replace(/_/g, " ")}
+            </div>
+          </div>
         </div>
         <button
           className="btn-ghost"
@@ -151,6 +167,9 @@ export default function Dashboard() {
             <button className={tab === "daily-closed" ? "active" : ""} onClick={() => setTab("daily-closed")}>
               Daily Closed
             </button>
+            <button className={tab === "branding" ? "active" : ""} onClick={() => setTab("branding")}>
+              Branding
+            </button>
           </div>
         )}
 
@@ -175,6 +194,7 @@ export default function Dashboard() {
         {tab === "garage-reports" && user.role === "GARAGE_MANAGER" && <GarageReportsView user={user} />}
         {tab === "ticket-history" && (user.role === "GARAGE_MANAGER" || isAdmin) && <TicketHistoryView user={user} showGarageFilter={isAdmin} />}
         {tab === "daily-closed" && (user.role === "GARAGE_MANAGER" || isAdmin) && <DailyClosedView user={user} showGarageFilter={isAdmin} />}
+        {tab === "branding" && isAdmin && <BrandingView settings={appSettings} onSaved={setAppSettings} />}
         {tab === "revenue" && isAdmin && <RevenueDashboard user={user} />}
         {tab === "garages" && (isAdmin || isSuperAdmin) && <GaragesView currentUser={user} />}
         {tab === "users" && (isAdmin || isSuperAdmin) && <UsersView currentUser={user} />}
@@ -356,6 +376,84 @@ function CheckInView() {
     }
   }
 
+  const [btStatus, setBtStatus] = useState("");
+  const [btError, setBtError] = useState("");
+
+  function buildEscPosTicket(t, copyLabel) {
+    const LF = "\n";
+    const BOLD_ON = "\x1B\x45\x01";
+    const BOLD_OFF = "\x1B\x45\x00";
+    const CENTER = "\x1B\x61\x01";
+    const LEFT = "\x1B\x61\x00";
+    const INIT = "\x1B\x40";
+    const DIV = "--------------------------------" + LF;
+    let s = INIT;
+    s += CENTER + BOLD_ON + (t.garage?.name || "Garage") + BOLD_OFF + LF;
+    s += CENTER + "---- " + copyLabel + " ----" + LF;
+    s += CENTER + BOLD_ON + "#" + t.ticketNumber + BOLD_OFF + LF;
+    s += DIV + LEFT;
+    s += "In:      " + new Date(t.checkInTime).toLocaleString() + LF;
+    if (t.apartmentNumber) s += "Unit:    " + t.apartmentNumber + LF;
+    if (t.licensePlate)    s += "Plate:   " + t.licensePlate + LF;
+    const veh = [t.vehicleColor, t.vehicleMake, t.vehicleModel].filter(Boolean).join(" ");
+    if (veh) s += "Vehicle: " + veh + LF;
+    if (t.parkingLocation) s += "Loc:     " + t.parkingLocation + LF;
+    s += DIV + LF + LF + LF;
+    return s;
+  }
+
+  async function handleBluetoothPrint() {
+    setBtError("");
+    setBtStatus("connecting");
+    try {
+      const { CapacitorThermalPrinter } = await import("capacitor-thermal-printer");
+      let address = localStorage.getItem("bt_printer_address");
+      if (!address) {
+        setBtStatus("scanning");
+        const result = await CapacitorThermalPrinter.startScan({ timeout: 5 });
+        const devices = result?.devices || [];
+        if (devices.length === 0) {
+          setBtError("No paired Bluetooth printers found. Make sure your MUNBYN is on and paired in Android Bluetooth settings.");
+          setBtStatus("error");
+          return;
+        }
+        // Auto-pick first device — MUNBYN will appear as "MUNBYN-XXXXX"
+        const munbyn = devices.find(d => d.name?.toUpperCase().includes("MUNBYN")) || devices[0];
+        address = munbyn.address;
+        localStorage.setItem("bt_printer_address", address);
+        localStorage.setItem("bt_printer_name", munbyn.name || address);
+      }
+      const conn = await CapacitorThermalPrinter.connect({ address });
+      if (!conn) {
+        setBtError("Couldn't connect to printer. Make sure it's powered on and in range.");
+        setBtStatus("error");
+        return;
+      }
+      setBtStatus("printing");
+      const printer = CapacitorThermalPrinter.useConnection(conn.connectionId);
+      await printer.begin().text(buildEscPosTicket(ticket, "CUSTOMER COPY")).cutPaper().write();
+      await new Promise(r => setTimeout(r, 800));
+      await printer.begin().text(buildEscPosTicket(ticket, "GARAGE COPY")).cutPaper().write();
+      setBtStatus("done");
+      setTimeout(() => setBtStatus(""), 3000);
+    } catch (err) {
+      console.error("Bluetooth print error:", err);
+      // Clear saved address so next attempt re-scans
+      if (btStatus === "connecting") localStorage.removeItem("bt_printer_address");
+      setBtError("Print failed: " + (err.message || "Unknown error"));
+      setBtStatus("error");
+    }
+  }
+
+  function handlePrint() {
+    const isNative = typeof window !== "undefined" && window.Capacitor?.isNativePlatform();
+    if (isNative) {
+      handleBluetoothPrint();
+    } else {
+      window.print();
+    }
+  }
+
   async function handleSubmit(e) {
     e.preventDefault();
     setError("");
@@ -392,8 +490,27 @@ function CheckInView() {
             {new Date(ticket.checkInTime).toLocaleString()}
           </div>
         </div>
-        <button className="btn btn-primary" onClick={() => window.print()}>
-          Print 2 ticket copies
+        {btError && (
+          <div className="error-box" style={{ marginBottom: 10 }}>
+            {btError}
+            <button
+              onClick={() => { localStorage.removeItem("bt_printer_address"); setBtError(""); }}
+              style={{ marginLeft: 10, background: "none", border: "none", color: "var(--brass-light)", cursor: "pointer", fontSize: 12, textDecoration: "underline" }}
+            >
+              Reset printer
+            </button>
+          </div>
+        )}
+        <button
+          className="btn btn-primary"
+          onClick={handlePrint}
+          disabled={btStatus === "connecting" || btStatus === "scanning" || btStatus === "printing"}
+        >
+          {btStatus === "scanning"    ? "🔍 Scanning for printer..."
+           : btStatus === "connecting" ? "🔗 Connecting to printer..."
+           : btStatus === "printing"   ? "🖨️ Printing..."
+           : btStatus === "done"       ? "✓ Printed!"
+           : "Print 2 ticket copies"}
         </button>
         <button className="btn btn-ghost" onClick={() => setTicket(null)}>
           Check in another vehicle
@@ -2315,6 +2432,98 @@ function RevenueDashboard({ user }) {
 }
 
 // ---------------- GARAGES (Super Admin / Admin) ----------------
+function BrandingView({ settings, onSaved }) {
+  const [companyName, setCompanyName] = useState(settings.companyName || "");
+  const [logoPreview, setLogoPreview] = useState(settings.logoUrl || null);
+  const [saving, setSaving] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const logoInputRef = useRef(null);
+
+  async function handleLogoSelect(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingLogo(true);
+    setError("");
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      const dataUrl = ev.target.result;
+      setLogoPreview(dataUrl);
+      try {
+        const res = await fetch("/api/settings/upload-logo", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imageBase64: dataUrl }),
+        });
+        const data = await res.json();
+        if (!res.ok) { setError(data.error); return; }
+        onSaved((prev) => ({ ...prev, logoUrl: data.url }));
+        setLogoPreview(data.url);
+        setSuccess("Logo uploaded!");
+        setTimeout(() => setSuccess(""), 3000);
+      } catch (err) {
+        setError("Upload failed. Try again.");
+      } finally {
+        setUploadingLogo(false);
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function saveSettings(e) {
+    e.preventDefault();
+    setSaving(true);
+    setError("");
+    const res = await fetch("/api/settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ companyName }),
+    });
+    const data = await res.json();
+    setSaving(false);
+    if (!res.ok) { setError(data.error); return; }
+    onSaved(data);
+    setSuccess("Settings saved!");
+    setTimeout(() => setSuccess(""), 3000);
+  }
+
+  return (
+    <>
+      <h1 className="title">Branding</h1>
+      {error && <div className="error-box">{error}</div>}
+      {success && <div style={{ color: "var(--green)", fontSize: 13, marginBottom: 12 }}>{success}</div>}
+
+      <div className="card">
+        <div style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--brass-light)", marginBottom: 14 }}>
+          App Logo
+        </div>
+        {logoPreview && (
+          <img src={logoPreview} alt="Logo preview" style={{ maxHeight: 80, maxWidth: "100%", objectFit: "contain", marginBottom: 14, borderRadius: 8 }} />
+        )}
+        <input ref={logoInputRef} type="file" accept="image/*" onChange={handleLogoSelect} style={{ display: "none" }} />
+        <button className="btn btn-ghost" onClick={() => logoInputRef.current?.click()} disabled={uploadingLogo}>
+          {uploadingLogo ? "Uploading..." : logoPreview ? "Change logo" : "Upload logo"}
+        </button>
+        <div className="field-hint" style={{ marginTop: 8 }}>
+          Recommended: PNG with transparent background, at least 200×80px. This appears in the top-left corner of the app for all users.
+        </div>
+      </div>
+
+      <form onSubmit={saveSettings} style={{ marginTop: 16 }}>
+        <div className="field">
+          <label>Company / App name</label>
+          <input value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="e.g. Carlyle Parking" />
+          <div className="field-hint">Shown in the header next to your logo. Leave blank to use "Integral".</div>
+        </div>
+        <button className="btn btn-primary" type="submit" disabled={saving}>
+          {saving ? "Saving..." : "Save settings"}
+        </button>
+      </form>
+    </>
+  );
+}
+
 function GaragesView({ currentUser }) {
   const isAdmin = currentUser?.role === "ADMIN";
   const [garages, setGarages] = useState([]);
