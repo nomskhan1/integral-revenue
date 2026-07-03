@@ -303,6 +303,9 @@ function CheckInView() {
   const [vehicleColor, setVehicleColor] = useState("");
   const [licensePlate, setLicensePlate] = useState("");
   const [parkingLocation, setParkingLocation] = useState("");
+  const [guestPhone, setGuestPhone] = useState("");
+  const [smsSending, setSmsSending] = useState(false);
+  const [smsStatus, setSmsStatus] = useState(null);
 
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState("");
@@ -401,10 +404,23 @@ function CheckInView() {
       setError(data.error);
       return;
     }
+    setSmsStatus(null);
     setTicket(data);
     setApartmentNumber(""); setVehicleMake(""); setVehicleModel("");
     setVehicleColor(""); setLicensePlate(""); setParkingLocation("");
     setScanNotice(""); setVehiclePhotoUrl(null); setPhotoPreview(null);
+  }
+
+  async function sendSms(ticketId, phone) {
+    setSmsSending(true); setSmsStatus(null);
+    const res = await fetch("/api/tickets/sms", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ticketId, phone }),
+    });
+    const data = await res.json();
+    setSmsSending(false);
+    setSmsStatus(res.ok ? "sent" : data.error || "Failed to send.");
   }
 
   if (ticket) {
@@ -424,7 +440,39 @@ function CheckInView() {
         <button className="btn btn-primary" onClick={() => window.print()}>
           Print 2 ticket copies
         </button>
-        <button className="btn btn-ghost" onClick={() => setTicket(null)}>
+
+        {/* SMS ticket to guest */}
+        <div className="card" style={{ marginTop: 4 }}>
+          <div style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--brass-light)", marginBottom: 10 }}>
+            Text ticket to guest
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input
+              value={guestPhone}
+              onChange={(e) => { setGuestPhone(e.target.value); setSmsStatus(null); }}
+              placeholder="Guest phone number"
+              type="tel"
+              inputMode="tel"
+              style={{ flex: 1 }}
+            />
+            <button
+              className="btn btn-ghost"
+              style={{ width: "auto", padding: "0 14px", flexShrink: 0 }}
+              disabled={smsSending || !guestPhone.trim()}
+              onClick={() => sendSms(ticket.id, guestPhone)}
+            >
+              {smsSending ? "Sending..." : "Send"}
+            </button>
+          </div>
+          {smsStatus === "sent" && (
+            <div style={{ fontSize: 12, color: "var(--green)", marginTop: 8 }}>✓ Ticket texted to guest</div>
+          )}
+          {smsStatus && smsStatus !== "sent" && (
+            <div style={{ fontSize: 12, color: "var(--red)", marginTop: 8 }}>✗ {smsStatus}</div>
+          )}
+        </div>
+
+        <button className="btn btn-ghost" onClick={() => { setTicket(null); setGuestPhone(""); setSmsStatus(null); }}>
           Check in another vehicle
         </button>
 
@@ -526,6 +574,17 @@ function CheckInView() {
         <div className="field">
           <label>Parking location (optional)</label>
           <input value={parkingLocation} onChange={(e) => setParkingLocation(e.target.value)} placeholder="e.g. Level 2, Spot 14" />
+        </div>
+        <div className="field">
+          <label>Guest phone number (optional)</label>
+          <input
+            value={guestPhone}
+            onChange={(e) => setGuestPhone(e.target.value)}
+            placeholder="e.g. 312-555-0100"
+            type="tel"
+            inputMode="tel"
+          />
+          <div className="field-hint">If provided, we'll offer to text them their ticket QR code after check-in.</div>
         </div>
         <button className="btn btn-primary" type="submit" disabled={saving}>
           {saving ? "Checking in..." : "Check in & generate ticket"}
