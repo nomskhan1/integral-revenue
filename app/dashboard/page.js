@@ -2482,27 +2482,31 @@ async function printVouchersInPopup(vouchers) {
   const w = window.open("", "_blank", "width=820,height=900");
   if (!w) return;
 
-  const rows = withQr.map(v => `
-    <div style="display:inline-block;width:200px;border:1px dashed #aaa;border-radius:8px;padding:14px;margin:8px;text-align:center;vertical-align:top;page-break-inside:avoid;">
-      <div style="font-size:11px;color:#555;margin-bottom:6px;font-weight:600;">${v.garage?.name || "Garage"}</div>
-      ${v.qrDataUrl ? `<img src="${v.qrDataUrl}" style="width:140px;height:140px;display:block;margin:0 auto 8px;" />` : ""}
-      <div style="font-family:monospace;font-size:13px;font-weight:700;letter-spacing:0.12em;">${v.code}</div>
-      ${v.note ? `<div style="font-size:10px;color:#777;margin-top:4px;">${v.note}</div>` : ""}
-      <div style="font-size:9px;color:#aaa;margin-top:6px;text-transform:uppercase;letter-spacing:0.08em;">N/C Voucher</div>
+  const rows = withQr.map((v, i) => `
+    <div style="width:80mm;padding:6mm;text-align:center;font-family:'Courier New',monospace;${i < withQr.length - 1 ? "page-break-after:always;" : ""}">
+      <div style="font-size:14px;font-weight:700;margin-bottom:4px;">${v.garage?.name || "Garage"}</div>
+      <div style="font-size:10px;color:#555;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.08em;">N/C Parking Voucher</div>
+      <div style="border-top:1px dashed #000;margin:8px 0;"></div>
+      ${v.qrDataUrl ? `<img src="${v.qrDataUrl}" style="width:160px;height:160px;display:block;margin:8px auto;" />` : ""}
+      <div style="font-size:16px;font-weight:700;letter-spacing:0.15em;margin:8px 0;">${v.code}</div>
+      <div style="border-top:1px dashed #000;margin:8px 0;"></div>
+      ${v.note ? `<div style="font-size:10px;color:#555;margin-bottom:6px;">${v.note}</div>` : ""}
+      <div style="font-size:9px;color:#888;">Present this voucher at checkout</div>
+      <div style="font-size:9px;color:#888;">Valid at this garage only · Single use</div>
     </div>
   `).join("");
 
   w.document.write(`<!DOCTYPE html><html><head>
     <title>N/C Vouchers</title>
     <style>
-      body { font-family: Arial, sans-serif; padding: 20px; background: #fff; }
-      h2 { margin-bottom: 4px; }
-      .sub { font-size: 12px; color: #666; margin-bottom: 16px; }
-      @media print { @page { margin: 10mm; } }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: #fff; }
+      @media print {
+        @page { margin: 0; size: 80mm auto; }
+        body { margin: 0; }
+      }
     </style>
   </head><body>
-    <h2>N/C Vouchers</h2>
-    <div class="sub">${withQr.length} voucher${withQr.length === 1 ? "" : "s"} · Print and distribute to authorized guests</div>
     <div>${rows}</div>
     <script>
       window.onload = function() { window.print(); };
