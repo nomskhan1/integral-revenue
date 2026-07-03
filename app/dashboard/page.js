@@ -2483,27 +2483,27 @@ async function printVouchersInPopup(vouchers) {
   if (!w) return;
 
   const rows = withQr.map((v, i) => `
-    <div style="width:80mm;padding:6mm;text-align:center;font-family:'Courier New',monospace;${i < withQr.length - 1 ? "page-break-after:always;" : ""}">
-      <div style="font-size:14px;font-weight:700;margin-bottom:4px;">${v.garage?.name || "Garage"}</div>
-      <div style="font-size:10px;color:#555;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.08em;">N/C Parking Voucher</div>
-      <div style="border-top:1px dashed #000;margin:8px 0;"></div>
-      ${v.qrDataUrl ? `<img src="${v.qrDataUrl}" style="width:160px;height:160px;display:block;margin:8px auto;" />` : ""}
-      <div style="font-size:16px;font-weight:700;letter-spacing:0.15em;margin:8px 0;">${v.code}</div>
-      <div style="border-top:1px dashed #000;margin:8px 0;"></div>
-      ${v.note ? `<div style="font-size:10px;color:#555;margin-bottom:6px;">${v.note}</div>` : ""}
-      <div style="font-size:9px;color:#888;">Present this voucher at checkout</div>
-      <div style="font-size:9px;color:#888;">Valid at this garage only · Single use</div>
+    <div style="width:80mm;padding:4mm 4mm 8mm 4mm;text-align:center;font-family:'Courier New',monospace;${i < withQr.length - 1 ? "page-break-after:always;" : ""}">
+      <div style="font-size:22px;font-weight:700;margin-bottom:2px;">${v.garage?.name || "Garage"}</div>
+      <div style="font-size:14px;letter-spacing:0.06em;margin-bottom:6px;">N/C PARKING VOUCHER</div>
+      <div style="border-top:2px dashed #000;margin:6px 0;"></div>
+      ${v.qrDataUrl ? `<img src="${v.qrDataUrl}" style="width:180px;height:180px;display:block;margin:6px auto;" />` : ""}
+      <div style="font-size:22px;font-weight:700;letter-spacing:0.2em;margin:6px 0;">${v.code}</div>
+      <div style="border-top:2px dashed #000;margin:6px 0;"></div>
+      ${v.note ? `<div style="font-size:16px;margin-bottom:6px;">${v.note}</div>` : ""}
+      <div style="font-size:14px;margin-top:4px;">Present at checkout</div>
+      <div style="font-size:14px;">Valid at this garage only</div>
+      <div style="font-size:14px;">Single use</div>
     </div>
   `).join("");
 
   w.document.write(`<!DOCTYPE html><html><head>
     <title>N/C Vouchers</title>
     <style>
-      * { box-sizing: border-box; }
-      body { margin: 0; background: #fff; }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body { background: #fff; }
       @media print {
         @page { margin: 0; size: 80mm auto; }
-        body { margin: 0; }
       }
     </style>
   </head><body>
