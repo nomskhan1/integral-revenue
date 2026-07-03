@@ -621,33 +621,6 @@ function CheckOutView() {
     }
   }
 
-  async function handleVoucherPhoto(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setVoucherPhotoUploading(true);
-    const reader = new FileReader();
-    reader.onload = async (ev) => {
-      try {
-        const res = await fetch("/api/tickets/upload-photo", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageBase64: ev.target.result }),
-        });
-        const data = await res.json();
-        if (data.url) {
-          setVoucherPhotoUrl(data.url);
-        } else {
-          alert("Photo upload failed — you can still proceed with checkout without the photo.");
-        }
-      } catch {
-        alert("Photo upload failed — you can still proceed with checkout without the photo.");
-      } finally {
-        setVoucherPhotoUploading(false);
-      }
-    };
-    reader.readAsDataURL(file);
-  }
-
   function closeVoucherCamera() {
     if (voucherScanLoopRef.current) cancelAnimationFrame(voucherScanLoopRef.current);
     if (voucherStreamRef.current) {
@@ -836,24 +809,15 @@ function CheckOutView() {
           <div className="field">
             <label>N/C Voucher code (optional)</label>
 
-            {/* Row 1: code input + scan + validate */}
+            {/* Row 1: manual code entry + validate */}
             <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
               <input
                 value={voucherCode}
                 onChange={(e) => { setVoucherCode(e.target.value.toUpperCase()); setVoucherStatus(null); }}
-                placeholder="Scan or enter voucher code"
+                placeholder="Enter voucher code manually"
                 style={{ fontFamily: "monospace", letterSpacing: "0.05em", flex: 1 }}
                 maxLength={20}
               />
-              <button
-                type="button"
-                className="btn btn-ghost"
-                style={{ width: "auto", padding: "0 12px", flexShrink: 0 }}
-                onClick={() => voucherCameraOpen ? closeVoucherCamera() : openVoucherCamera()}
-                title="Scan voucher QR code with camera"
-              >
-                🔍
-              </button>
               <button
                 type="button"
                 className="btn btn-primary"
@@ -869,7 +833,99 @@ function CheckOutView() {
               </button>
             </div>
 
-            {/* Camera viewfinder for QR scan */}
+            {/* Row 2: scan from photo (reads QR + saves as audit photo in one step) */}
+            <input
+              ref={voucherPhotoInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              style={{ display: "none" }}
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                setVoucherPhotoUploading(true);
+                setVoucherStatus(null);
+
+                const reader = new FileReader();
+                reader.onload = async (ev) => {
+                  const dataUrl = ev.target.result;
+
+                  // Step 1: try to read QR code from the photo
+                  try {
+                    const img = new Image();
+                    img.onload = async () => {
+                      const canvas = document.createElement("canvas");
+                      canvas.width = img.width;
+                      canvas.height = img.height;
+                      canvas.getContext("2d").drawImage(img, 0, 0);
+                      const imageData = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height);
+                      const { default: jsQR } = await import("jsqr");
+                      const result = jsQR(imageData.data, imageData.width, imageData.height);
+                      if (result?.data) {
+                        const code = result.data.trim().toUpperCase();
+                        setVoucherCode(code);
+                        // Auto-validate the scanned code
+                        const vRes = await fetch(`/api/vouchers/validate?code=${encodeURIComponent(code)}&garageId=${ticket.garageId}`);
+                        setVoucherStatus(await vRes.json());
+                      } else {
+                        setVoucherStatus({ valid: false, error: "No QR code found in photo. Enter the code manually above." });
+                      }
+                    };
+                    img.src = dataUrl;
+                  } catch {}
+
+                  // Step 2: upload photo to Blob for audit (in parallel)
+                  try {
+                    const res = await fetch("/api/tickets/upload-photo", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ imageBase64: dataUrl }),
+                    });
+                    const data = await res.json();
+                    if (data.url) setVoucherPhotoUrl(data.url);
+                  } catch {}
+
+                  setVoucherPhotoUploading(false);
+                };
+                reader.readAsDataURL(file);
+              }}
+            />
+
+            {voucherPhotoUrl ? (
+              <div style={{ position: "relative", marginBottom: 8 }}>
+                <img src={voucherPhotoUrl} alt="Voucher" style={{ width: "100%", maxHeight: 220, objectFit: "cover", borderRadius: 8 }} />
+                <button
+                  type="button"
+                  onClick={() => { setVoucherPhotoUrl(null); setVoucherCode(""); setVoucherStatus(null); }}
+                  style={{ position: "absolute", top: 6, right: 6, background: "rgba(0,0,0,0.65)", border: "none", color: "#fff", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12 }}
+                >
+                  Retake
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{ width: "100%", marginBottom: 8 }}
+                onClick={() => voucherPhotoInputRef.current?.click()}
+                disabled={voucherPhotoUploading}
+              >
+                {voucherPhotoUploading ? "Processing..." : "📷 Take photo of voucher — scans QR & saves for audit"}
+              </button>
+            )}
+
+            {/* Live camera as fallback */}
+            {!voucherPhotoUrl && (
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{ width: "100%", marginBottom: 8, fontSize: 12 }}
+                onClick={() => voucherCameraOpen ? closeVoucherCamera() : openVoucherCamera()}
+              >
+                {voucherCameraOpen ? "✕ Close camera" : "🔍 Live camera scan instead"}
+              </button>
+            )}
+
             {voucherCameraOpen && (
               <div style={{ marginBottom: 8, position: "relative" }}>
                 <video ref={voucherVideoRef} style={{ width: "100%", borderRadius: 8, background: "#000" }} playsInline muted />
@@ -892,44 +948,7 @@ function CheckOutView() {
               </div>
             )}
 
-            {/* Row 2: photo for audit */}
-            <div style={{ borderTop: "1px solid var(--line)", paddingTop: 10, marginTop: 4 }}>
-              <div style={{ fontSize: 12, color: "var(--slate2)", marginBottom: 6, fontWeight: 600 }}>
-                📸 Photo of voucher for audit (optional)
-              </div>
-              <input
-                ref={voucherPhotoInputRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                onChange={handleVoucherPhoto}
-                style={{ display: "none" }}
-              />
-              {voucherPhotoUrl ? (
-                <div style={{ position: "relative" }}>
-                  <img src={voucherPhotoUrl} alt="Voucher" style={{ width: "100%", maxHeight: 200, objectFit: "cover", borderRadius: 8 }} />
-                  <button
-                    type="button"
-                    onClick={() => setVoucherPhotoUrl(null)}
-                    style={{ position: "absolute", top: 6, right: 6, background: "rgba(0,0,0,0.6)", border: "none", color: "#fff", borderRadius: 6, padding: "3px 8px", cursor: "pointer", fontSize: 12 }}
-                  >
-                    Retake
-                  </button>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  style={{ width: "100%" }}
-                  onClick={() => voucherPhotoInputRef.current?.click()}
-                  disabled={voucherPhotoUploading}
-                >
-                  {voucherPhotoUploading ? "Uploading..." : "📷 Take photo of voucher"}
-                </button>
-              )}
-            </div>
-
-            <div className="field-hint" style={{ marginTop: 8 }}>Leave blank to proceed as N/C without a voucher.</div>
+            <div className="field-hint">Leave blank to proceed as N/C without a voucher.</div>
           </div>
         )}
 

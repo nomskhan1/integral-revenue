@@ -5,7 +5,7 @@ async function POST(req) {
   const session = getSessionFromRequest(req);
   if (!session) return new Response(JSON.stringify({ error: "Not signed in." }), { status: 401 });
 
-  if (!["EMPLOYEE", "GARAGE_MANAGER"].includes(session.role)) {
+  if (!["EMPLOYEE", "GARAGE_MANAGER", "ADMIN"].includes(session.role)) {
     return new Response(JSON.stringify({ error: "Not allowed." }), { status: 403 });
   }
 
