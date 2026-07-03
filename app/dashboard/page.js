@@ -826,7 +826,9 @@ function CheckOutView() {
         {paymentMethod === "NC" && (
           <div className="field">
             <label>N/C Voucher code (optional)</label>
-            <div style={{ display: "flex", gap: 8 }}>
+
+            {/* Row 1: code input + scan + validate */}
+            <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
               <input
                 value={voucherCode}
                 onChange={(e) => { setVoucherCode(e.target.value.toUpperCase()); setVoucherStatus(null); }}
@@ -839,14 +841,14 @@ function CheckOutView() {
                 className="btn btn-ghost"
                 style={{ width: "auto", padding: "0 12px", flexShrink: 0 }}
                 onClick={() => voucherCameraOpen ? closeVoucherCamera() : openVoucherCamera()}
-                title="Scan voucher QR code"
+                title="Scan voucher QR code with camera"
               >
-                📷
+                🔍
               </button>
               <button
                 type="button"
-                className="btn btn-ghost"
-                style={{ width: "auto", padding: "0 12px", flexShrink: 0 }}
+                className="btn btn-primary"
+                style={{ width: "auto", padding: "0 14px", flexShrink: 0 }}
                 disabled={!voucherCode.trim()}
                 onClick={async () => {
                   const res = await fetch(`/api/vouchers/validate?code=${encodeURIComponent(voucherCode.trim())}&garageId=${ticket.garageId}`);
@@ -857,8 +859,10 @@ function CheckOutView() {
                 Validate
               </button>
             </div>
+
+            {/* Camera viewfinder for QR scan */}
             {voucherCameraOpen && (
-              <div style={{ marginTop: 10, position: "relative" }}>
+              <div style={{ marginBottom: 8, position: "relative" }}>
                 <video ref={voucherVideoRef} style={{ width: "100%", borderRadius: 8, background: "#000" }} playsInline muted />
                 <button
                   onClick={closeVoucherCamera}
@@ -866,21 +870,23 @@ function CheckOutView() {
                 >
                   ✕ Close
                 </button>
-                <div style={{ textAlign: "center", fontSize: 12, color: "var(--slate2)", marginTop: 6 }}>
+                <div style={{ textAlign: "center", fontSize: 12, color: "var(--slate2)", marginTop: 4 }}>
                   Point camera at voucher QR code
                 </div>
               </div>
             )}
+
+            {/* Validation result */}
             {voucherStatus && (
-              <div style={{ marginTop: 6, fontSize: 12, color: voucherStatus.valid ? "var(--green)" : "var(--red)" }}>
+              <div style={{ marginBottom: 8, fontSize: 13, fontWeight: 600, color: voucherStatus.valid ? "var(--green)" : "var(--red)" }}>
                 {voucherStatus.valid ? "✓ Valid voucher — parking will be N/C" : `✗ ${voucherStatus.error}`}
               </div>
             )}
 
-            {/* Voucher photo for audit trail */}
-            <div style={{ marginTop: 10 }}>
-              <div style={{ fontSize: 12, color: "var(--slate2)", marginBottom: 6 }}>
-                📸 Photo of voucher (for audit)
+            {/* Row 2: photo for audit */}
+            <div style={{ borderTop: "1px solid var(--line)", paddingTop: 10, marginTop: 4 }}>
+              <div style={{ fontSize: 12, color: "var(--slate2)", marginBottom: 6, fontWeight: 600 }}>
+                📸 Photo of voucher for audit (optional)
               </div>
               <input
                 ref={voucherPhotoInputRef}
@@ -891,7 +897,7 @@ function CheckOutView() {
                 style={{ display: "none" }}
               />
               {voucherPhotoUrl ? (
-                <div style={{ position: "relative", display: "inline-block" }}>
+                <div style={{ position: "relative" }}>
                   <img src={voucherPhotoUrl} alt="Voucher" style={{ width: "100%", maxHeight: 200, objectFit: "cover", borderRadius: 8 }} />
                   <button
                     type="button"
@@ -914,7 +920,7 @@ function CheckOutView() {
               )}
             </div>
 
-            <div className="field-hint">Leave blank to proceed as N/C without a voucher.</div>
+            <div className="field-hint" style={{ marginTop: 8 }}>Leave blank to proceed as N/C without a voucher.</div>
           </div>
         )}
 
