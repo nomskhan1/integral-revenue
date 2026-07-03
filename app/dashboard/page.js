@@ -2465,35 +2465,47 @@ function RevenueDashboard({ user }) {
 }
 
 // ---------------- GARAGES (Super Admin / Admin) ----------------
-function printVouchersInPopup(vouchers) {
-  const w = window.open("", "_blank", "width=800,height=900");
+async function printVouchersInPopup(vouchers) {
+  // Generate all QR codes server-side first (same approach as ticket reprint)
+  const withQr = await Promise.all(
+    vouchers.map(async (v) => {
+      try {
+        const res = await fetch(`/api/qr?token=${encodeURIComponent(v.code)}`);
+        const data = await res.json();
+        return { ...v, qrDataUrl: data.dataUrl || "" };
+      } catch {
+        return { ...v, qrDataUrl: "" };
+      }
+    })
+  );
+
+  const w = window.open("", "_blank", "width=820,height=900");
   if (!w) return;
-  const rows = vouchers.map(v => `
-    <div style="display:inline-block;width:220px;border:1px dashed #aaa;border-radius:8px;padding:14px;margin:8px;text-align:center;vertical-align:top;">
-      <div style="font-size:11px;color:#555;margin-bottom:4px;">${v.garage?.name || "Garage"}</div>
-      <canvas id="qr-${v.code}" style="display:block;margin:0 auto 8px;"></canvas>
-      <div style="font-family:monospace;font-size:13px;font-weight:700;letter-spacing:0.1em;">${v.code}</div>
+
+  const rows = withQr.map(v => `
+    <div style="display:inline-block;width:200px;border:1px dashed #aaa;border-radius:8px;padding:14px;margin:8px;text-align:center;vertical-align:top;page-break-inside:avoid;">
+      <div style="font-size:11px;color:#555;margin-bottom:6px;font-weight:600;">${v.garage?.name || "Garage"}</div>
+      ${v.qrDataUrl ? `<img src="${v.qrDataUrl}" style="width:140px;height:140px;display:block;margin:0 auto 8px;" />` : ""}
+      <div style="font-family:monospace;font-size:13px;font-weight:700;letter-spacing:0.12em;">${v.code}</div>
       ${v.note ? `<div style="font-size:10px;color:#777;margin-top:4px;">${v.note}</div>` : ""}
-      <div style="font-size:9px;color:#aaa;margin-top:4px;">N/C VOUCHER</div>
+      <div style="font-size:9px;color:#aaa;margin-top:6px;text-transform:uppercase;letter-spacing:0.08em;">N/C Voucher</div>
     </div>
   `).join("");
+
   w.document.write(`<!DOCTYPE html><html><head>
     <title>N/C Vouchers</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <style>
       body { font-family: Arial, sans-serif; padding: 20px; background: #fff; }
+      h2 { margin-bottom: 4px; }
+      .sub { font-size: 12px; color: #666; margin-bottom: 16px; }
       @media print { @page { margin: 10mm; } }
     </style>
   </head><body>
-    <h2 style="margin-bottom:16px;">N/C Vouchers</h2>
+    <h2>N/C Vouchers</h2>
+    <div class="sub">${withQr.length} voucher${withQr.length === 1 ? "" : "s"} · Print and distribute to authorized guests</div>
     <div>${rows}</div>
     <script>
-      window.onload = function() {
-        document.querySelectorAll('canvas').forEach(function(c) {
-          new QRCode(c, { text: c.id.replace('qr-',''), width: 120, height: 120 });
-        });
-        setTimeout(function() { window.print(); }, 600);
-      };
+      window.onload = function() { window.print(); };
     </script>
   </body></html>`);
   w.document.close();
