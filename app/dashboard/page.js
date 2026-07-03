@@ -846,48 +846,63 @@ function CheckOutView() {
                 setVoucherPhotoUploading(true);
                 setVoucherStatus(null);
 
-                const reader = new FileReader();
-                reader.onload = async (ev) => {
-                  const dataUrl = ev.target.result;
+                // Convert file to data URL
+                const dataUrl = await new Promise((resolve) => {
+                  const reader = new FileReader();
+                  reader.onload = (ev) => resolve(ev.target.result);
+                  reader.readAsDataURL(file);
+                });
 
-                  // Step 1: try to read QR code from the photo
-                  try {
-                    const img = new Image();
-                    img.onload = async () => {
-                      const canvas = document.createElement("canvas");
-                      canvas.width = img.width;
-                      canvas.height = img.height;
-                      canvas.getContext("2d").drawImage(img, 0, 0);
-                      const imageData = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height);
-                      const { default: jsQR } = await import("jsqr");
-                      const result = jsQR(imageData.data, imageData.width, imageData.height);
-                      if (result?.data) {
-                        const code = result.data.trim().toUpperCase();
-                        setVoucherCode(code);
-                        // Auto-validate the scanned code
-                        const vRes = await fetch(`/api/vouchers/validate?code=${encodeURIComponent(code)}&garageId=${ticket.garageId}`);
-                        setVoucherStatus(await vRes.json());
-                      } else {
-                        setVoucherStatus({ valid: false, error: "No QR code found in photo. Enter the code manually above." });
-                      }
-                    };
-                    img.src = dataUrl;
-                  } catch {}
+                // Step 1: read QR code from the photo
+                try {
+                  const { default: jsQR } = await import("jsqr");
+                  const img = await new Promise((resolve, reject) => {
+                    const i = new Image();
+                    i.onload = () => resolve(i);
+                    i.onerror = reject;
+                    i.src = dataUrl;
+                  });
 
-                  // Step 2: upload photo to Blob for audit (in parallel)
-                  try {
-                    const res = await fetch("/api/tickets/upload-photo", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ imageBase64: dataUrl }),
+                  // Try at different scales to improve detection
+                  let result = null;
+                  for (const scale of [1, 0.5, 0.25]) {
+                    const canvas = document.createElement("canvas");
+                    canvas.width = Math.round(img.width * scale);
+                    canvas.height = Math.round(img.height * scale);
+                    const ctx = canvas.getContext("2d");
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                    result = jsQR(imageData.data, imageData.width, imageData.height, {
+                      inversionAttempts: "attemptBoth",
                     });
-                    const data = await res.json();
-                    if (data.url) setVoucherPhotoUrl(data.url);
-                  } catch {}
+                    if (result?.data) break;
+                  }
 
-                  setVoucherPhotoUploading(false);
-                };
-                reader.readAsDataURL(file);
+                  if (result?.data) {
+                    const code = result.data.trim().toUpperCase();
+                    setVoucherCode(code);
+                    const vRes = await fetch(`/api/vouchers/validate?code=${encodeURIComponent(code)}&garageId=${ticket.garageId}`);
+                    setVoucherStatus(await vRes.json());
+                  } else {
+                    setVoucherStatus({ valid: false, error: "No QR code found in photo. Make sure the full QR code is visible and in focus, or enter the code manually above." });
+                  }
+                } catch (err) {
+                  console.error("QR read error:", err);
+                  setVoucherStatus({ valid: false, error: "Couldn't process the photo. Try again or enter the code manually." });
+                }
+
+                // Step 2: upload photo to Blob for audit
+                try {
+                  const res = await fetch("/api/tickets/upload-photo", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ imageBase64: dataUrl }),
+                  });
+                  const data = await res.json();
+                  if (data.url) setVoucherPhotoUrl(data.url);
+                } catch {}
+
+                setVoucherPhotoUploading(false);
               }}
             />
 
