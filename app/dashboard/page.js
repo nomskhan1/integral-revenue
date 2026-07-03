@@ -627,14 +627,23 @@ function CheckOutView() {
     setVoucherPhotoUploading(true);
     const reader = new FileReader();
     reader.onload = async (ev) => {
-      const res = await fetch("/api/tickets/upload-photo", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageBase64: ev.target.result }),
-      });
-      const data = await res.json();
-      setVoucherPhotoUploading(false);
-      if (data.url) setVoucherPhotoUrl(data.url);
+      try {
+        const res = await fetch("/api/tickets/upload-photo", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imageBase64: ev.target.result }),
+        });
+        const data = await res.json();
+        if (data.url) {
+          setVoucherPhotoUrl(data.url);
+        } else {
+          alert("Photo upload failed — you can still proceed with checkout without the photo.");
+        }
+      } catch {
+        alert("Photo upload failed — you can still proceed with checkout without the photo.");
+      } finally {
+        setVoucherPhotoUploading(false);
+      }
     };
     reader.readAsDataURL(file);
   }

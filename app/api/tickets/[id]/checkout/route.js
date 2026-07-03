@@ -110,17 +110,31 @@ async function POST(req, { params }) {
     include: { garage: { select: { name: true } } },
   });
 
-  // Mark voucher as used if one was provided
+  // Mark voucher as used if one was provided.
+  // Wrapped in try/catch so a missing column or blob issue never blocks checkout.
   if (voucher) {
-    await prisma.nCVoucher.update({
-      where: { id: voucher.id },
-      data: {
-        status: "USED",
-        usedByTicketId: updatedTicket.id,
-        usedAt: checkOutTime,
-        voucherPhotoUrl: voucherPhotoUrl || null,
-      },
-    });
+    try {
+      await prisma.nCVoucher.update({
+        where: { id: voucher.id },
+        data: {
+          status: "USED",
+          usedByTicketId: updatedTicket.id,
+          usedAt: checkOutTime,
+          voucherPhotoUrl: voucherPhotoUrl || null,
+        },
+      });
+    } catch (err) {
+      console.error("[checkout] voucher update failed:", err.message);
+      // Still mark as used even if photo save failed
+      try {
+        await prisma.nCVoucher.update({
+          where: { id: voucher.id },
+          data: { status: "USED", usedByTicketId: updatedTicket.id, usedAt: checkOutTime },
+        });
+      } catch (err2) {
+        console.error("[checkout] fallback voucher update failed:", err2.message);
+      }
+    }
   }
 
   return new Response(JSON.stringify(updatedTicket), { status: 200 });
