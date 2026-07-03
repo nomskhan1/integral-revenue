@@ -573,6 +573,62 @@ function CheckOutView() {
   const streamRef = useRef(null);
   const scanLoopRef = useRef(null);
 
+  // Separate camera for voucher QR scanning
+  const [voucherCameraOpen, setVoucherCameraOpen] = useState(false);
+  const voucherVideoRef = useRef(null);
+  const voucherStreamRef = useRef(null);
+  const voucherScanLoopRef = useRef(null);
+
+  async function openVoucherCamera() {
+    setVoucherCameraOpen(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+      voucherStreamRef.current = stream;
+      if (voucherVideoRef.current) {
+        voucherVideoRef.current.srcObject = stream;
+        await voucherVideoRef.current.play();
+      }
+      const jsQR = (await import("jsqr")).default;
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      function tick() {
+        if (!voucherVideoRef.current || voucherVideoRef.current.readyState !== voucherVideoRef.current.HAVE_ENOUGH_DATA) {
+          voucherScanLoopRef.current = requestAnimationFrame(tick);
+          return;
+        }
+        canvas.width = voucherVideoRef.current.videoWidth;
+        canvas.height = voucherVideoRef.current.videoHeight;
+        ctx.drawImage(voucherVideoRef.current, 0, 0, canvas.width, canvas.height);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const result = jsQR(imageData.data, imageData.width, imageData.height);
+        if (result?.data) {
+          closeVoucherCamera();
+          setVoucherCode(result.data.toUpperCase());
+          setVoucherStatus(null);
+          // Auto-validate after scan
+          fetch(`/api/vouchers/validate?code=${encodeURIComponent(result.data.trim().toUpperCase())}&garageId=${ticket?.garageId}`)
+            .then(r => r.json()).then(setVoucherStatus).catch(() => {});
+          return;
+        }
+        voucherScanLoopRef.current = requestAnimationFrame(tick);
+      }
+      voucherScanLoopRef.current = requestAnimationFrame(tick);
+    } catch {
+      setVoucherCameraOpen(false);
+    }
+  }
+
+  function closeVoucherCamera() {
+    if (voucherScanLoopRef.current) cancelAnimationFrame(voucherScanLoopRef.current);
+    if (voucherStreamRef.current) {
+      voucherStreamRef.current.getTracks().forEach(t => t.stop());
+      voucherStreamRef.current = null;
+    }
+    setVoucherCameraOpen(false);
+  }
+
+  useEffect(() => { return () => closeVoucherCamera(); }, []);
+
   async function lookupByCode(rawCode) {
     setError("");
     setTicket(null);
@@ -760,7 +816,16 @@ function CheckOutView() {
               <button
                 type="button"
                 className="btn btn-ghost"
-                style={{ width: "auto", padding: "0 14px", flexShrink: 0 }}
+                style={{ width: "auto", padding: "0 12px", flexShrink: 0 }}
+                onClick={() => voucherCameraOpen ? closeVoucherCamera() : openVoucherCamera()}
+                title="Scan voucher QR code"
+              >
+                📷
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{ width: "auto", padding: "0 12px", flexShrink: 0 }}
                 disabled={!voucherCode.trim()}
                 onClick={async () => {
                   const res = await fetch(`/api/vouchers/validate?code=${encodeURIComponent(voucherCode.trim())}&garageId=${ticket.garageId}`);
@@ -771,6 +836,20 @@ function CheckOutView() {
                 Validate
               </button>
             </div>
+            {voucherCameraOpen && (
+              <div style={{ marginTop: 10, position: "relative" }}>
+                <video ref={voucherVideoRef} style={{ width: "100%", borderRadius: 8, background: "#000" }} playsInline muted />
+                <button
+                  onClick={closeVoucherCamera}
+                  style={{ position: "absolute", top: 8, right: 8, background: "rgba(0,0,0,0.6)", border: "none", color: "#fff", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 13 }}
+                >
+                  ✕ Close
+                </button>
+                <div style={{ textAlign: "center", fontSize: 12, color: "var(--slate2)", marginTop: 6 }}>
+                  Point camera at voucher QR code
+                </div>
+              </div>
+            )}
             {voucherStatus && (
               <div style={{ marginTop: 6, fontSize: 12, color: voucherStatus.valid ? "var(--green)" : "var(--red)" }}>
                 {voucherStatus.valid ? "✓ Valid voucher — parking will be N/C" : `✗ ${voucherStatus.error}`}
@@ -2561,8 +2640,10 @@ function VouchersView({ user, isAdmin }) {
     if (!res.ok) { setError(data.error); return; }
     setSuccess(`${data.length} voucher${data.length === 1 ? "" : "s"} created.`);
     setGenNote(""); loadVouchers();
-    // Auto-print the newly created vouchers
-    printVouchersInPopup(data);
+    // Augment with garage name in case the API response doesn't include it
+    const garageName = garages.find(g => g.id === genGarage)?.name || user.garage?.name || "";
+    const withGarage = data.map(v => ({ ...v, garage: v.garage || { name: garageName } }));
+    printVouchersInPopup(withGarage);
   }
 
   async function cancelVoucher(id) {
@@ -2639,7 +2720,12 @@ function VouchersView({ user, isAdmin }) {
         </select>
         {vouchers.filter(v => v.status === "ACTIVE").length > 0 && (
           <button className="btn btn-ghost" style={{ width: "auto", padding: "0 14px" }}
-            onClick={() => printVouchersInPopup(vouchers.filter(v => v.status === "ACTIVE"))}>
+            onClick={() => {
+              const active = vouchers.filter(v => v.status === "ACTIVE").map(v => ({
+                ...v, garage: v.garage || { name: garages.find(g => g.id === v.garageId)?.name || user.garage?.name || "" }
+              }));
+              printVouchersInPopup(active);
+            }}>
             Print All Active
           </button>
         )}
@@ -2667,7 +2753,10 @@ function VouchersView({ user, isAdmin }) {
             {v.status === "ACTIVE" && (
               <>
                 <button style={{ background: "none", border: "none", color: "var(--brass-light)", fontSize: 11, cursor: "pointer" }}
-                  onClick={() => printVouchersInPopup([v])}>Reprint</button>
+                  onClick={() => {
+                    const withGarage = { ...v, garage: v.garage || { name: garages.find(g => g.id === v.garageId)?.name || user.garage?.name || "" } };
+                    printVouchersInPopup([withGarage]);
+                  }}>Reprint</button>
                 <button style={{ background: "none", border: "none", color: "var(--red)", fontSize: 11, cursor: "pointer" }}
                   onClick={() => cancelVoucher(v.id)}>Cancel</button>
               </>
