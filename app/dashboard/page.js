@@ -1073,6 +1073,30 @@ function TicketHistoryView({ user, showGarageFilter }) {
   const [statusFilter, setStatusFilter] = useState("");
   const [garageFilter, setGarageFilter] = useState("");
   const [viewing, setViewing] = useState(null);
+  const [viewingVoucher, setViewingVoucher] = useState(null);
+  const [voucherQr, setVoucherQr] = useState(null);
+
+  // Load voucher info when viewing an N/C ticket
+  useEffect(() => {
+    setViewingVoucher(null);
+    setVoucherQr(null);
+    if (viewing?.paymentMethod === "NC") {
+      fetch(`/api/vouchers?ticketId=${viewing.id}`)
+        .then(r => r.json())
+        .then(async (data) => {
+          if (data?.length > 0) {
+            const v = data[0];
+            setViewingVoucher(v);
+            // Generate QR code for the voucher
+            try {
+              const qrRes = await fetch(`/api/qr?token=${encodeURIComponent(v.code)}`);
+              const qrData = await qrRes.json();
+              if (qrData.dataUrl) setVoucherQr(qrData.dataUrl);
+            } catch {}
+          }
+        }).catch(() => {});
+    }
+  }, [viewing]);
 
   function handleReprint(t) {
     printTicketInPopup(t);
@@ -1167,6 +1191,45 @@ function TicketHistoryView({ user, showGarageFilter }) {
           )}
           {viewing.paymentNote && (
             <p style={{ marginTop: 10, fontSize: 13, color: "var(--slate2)" }}>Note: {viewing.paymentNote}</p>
+          )}
+
+          {/* Voucher audit section — shown when ticket was paid with a tracked N/C voucher */}
+          {viewing.paymentMethod === "NC" && viewingVoucher && (
+            <div className="card" style={{ marginTop: 14 }}>
+              <div style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--brass-light)", marginBottom: 10 }}>
+                N/C Voucher Used
+              </div>
+              <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
+                {voucherQr && (
+                  <img src={voucherQr} alt="Voucher QR" style={{ width: 90, height: 90, flexShrink: 0, borderRadius: 6 }} />
+                )}
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontFamily: "monospace", fontSize: 17, fontWeight: 700, letterSpacing: "0.12em", marginBottom: 4 }}>
+                    {viewingVoucher.code}
+                  </div>
+                  {viewingVoucher.note && (
+                    <div style={{ fontSize: 12, color: "var(--slate2)", marginBottom: 4 }}>{viewingVoucher.note}</div>
+                  )}
+                  <div style={{ fontSize: 11, color: "var(--slate2)" }}>
+                    Issued by: {viewingVoucher.createdBy?.name || "—"}
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--slate2)" }}>
+                    Used: {new Date(viewingVoucher.usedAt).toLocaleString()}
+                  </div>
+                  <div style={{ marginTop: 6 }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", padding: "2px 8px", borderRadius: 10, background: "var(--green)", color: "var(--navy)" }}>
+                      VERIFIED USED
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {viewing.paymentMethod === "NC" && !viewingVoucher && viewing.status === "COMPLETED" && (
+            <div style={{ marginTop: 10, fontSize: 12, color: "var(--slate2)", fontStyle: "italic" }}>
+              No voucher was linked to this N/C ticket.
+            </div>
           )}
         </div>
         <button className="btn btn-primary" onClick={() => handleReprint(viewing)} style={{ marginBottom: 10 }}>

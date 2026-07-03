@@ -12,13 +12,18 @@ async function GET(req) {
     const url = new URL(req.url);
     const garageId = url.searchParams.get("garageId");
     const status = url.searchParams.get("status");
+    const ticketId = url.searchParams.get("ticketId");
 
     const where = {};
-    if (garageId) where.garageId = garageId;
-    else if (session.role === "GARAGE_MANAGER" && session.garageId) {
-      where.garageId = session.garageId;
+    if (ticketId) {
+      where.usedByTicketId = ticketId;
+    } else {
+      if (garageId) where.garageId = garageId;
+      else if (session.role === "GARAGE_MANAGER" && session.garageId) {
+        where.garageId = session.garageId;
+      }
+      if (status) where.status = status;
     }
-    if (status) where.status = status;
 
     const vouchers = await prisma.nCVoucher.findMany({
       where,
