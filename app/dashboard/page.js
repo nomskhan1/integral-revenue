@@ -2483,17 +2483,23 @@ async function printVouchersInPopup(vouchers) {
   if (!w) return;
 
   const rows = withQr.map((v, i) => `
-    <div style="width:80mm;padding:4mm 4mm 8mm 4mm;text-align:center;font-family:'Courier New',monospace;${i < withQr.length - 1 ? "page-break-after:always;" : ""}">
+    <div style="width:80mm;padding:4mm 4mm 8mm 4mm;text-align:center;font-family:'Courier New',monospace;${i === 0 ? "margin-top:-12mm;" : ""}${i < withQr.length - 1 ? "page-break-after:always;" : ""}">
       <div style="font-size:22px;font-weight:700;margin-bottom:2px;">${v.garage?.name || "Garage"}</div>
       <div style="font-size:14px;letter-spacing:0.06em;margin-bottom:6px;">N/C PARKING VOUCHER</div>
       <div style="border-top:2px dashed #000;margin:6px 0;"></div>
       ${v.qrDataUrl ? `<img src="${v.qrDataUrl}" style="width:180px;height:180px;display:block;margin:6px auto;" />` : ""}
       <div style="font-size:22px;font-weight:700;letter-spacing:0.2em;margin:6px 0;">${v.code}</div>
       <div style="border-top:2px dashed #000;margin:6px 0;"></div>
-      ${v.note ? `<div style="font-size:16px;margin-bottom:6px;">${v.note}</div>` : ""}
-      <div style="font-size:14px;margin-top:4px;">Present at checkout</div>
-      <div style="font-size:14px;">Valid at this garage only</div>
-      <div style="font-size:14px;">Single use</div>
+      ${v.note ? `<div style="font-size:15px;margin-bottom:6px;">${v.note}</div>` : ""}
+      <div style="font-size:14px;text-align:left;margin:8px 0 4px;">Issued to:</div>
+      <div style="border-bottom:1px solid #000;margin-bottom:14px;height:22px;"></div>
+      <div style="font-size:14px;text-align:left;margin:8px 0 4px;">Authorized by:</div>
+      <div style="border-bottom:1px solid #000;margin-bottom:14px;height:22px;"></div>
+      <div style="font-size:14px;text-align:left;margin:8px 0 4px;">Signature:</div>
+      <div style="border-bottom:1px solid #000;margin-bottom:14px;height:32px;"></div>
+      <div style="border-top:2px dashed #000;margin:6px 0;"></div>
+      <div style="font-size:13px;margin-top:4px;">Present at checkout · Single use</div>
+      <div style="font-size:13px;">Valid at this garage only</div>
     </div>
   `).join("");
 
