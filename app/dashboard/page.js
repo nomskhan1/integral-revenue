@@ -542,7 +542,10 @@ function CheckOutView() {
   const [error, setError] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("");
   const [voucherCode, setVoucherCode] = useState("");
-  const [voucherStatus, setVoucherStatus] = useState(null); // null | { valid, error, voucher }
+  const [voucherStatus, setVoucherStatus] = useState(null);
+  const [voucherPhotoUrl, setVoucherPhotoUrl] = useState(null);
+  const [voucherPhotoUploading, setVoucherPhotoUploading] = useState(false);
+  const voucherPhotoInputRef = useRef(null); // null | { valid, error, voucher }
   const [paymentNote, setPaymentNote] = useState("");
   const [completing, setCompleting] = useState(false);
   const [completed, setCompleted] = useState(null);
@@ -616,6 +619,24 @@ function CheckOutView() {
     } catch {
       setVoucherCameraOpen(false);
     }
+  }
+
+  async function handleVoucherPhoto(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setVoucherPhotoUploading(true);
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      const res = await fetch("/api/tickets/upload-photo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageBase64: ev.target.result }),
+      });
+      const data = await res.json();
+      setVoucherPhotoUploading(false);
+      if (data.url) setVoucherPhotoUrl(data.url);
+    };
+    reader.readAsDataURL(file);
   }
 
   function closeVoucherCamera() {
@@ -706,7 +727,7 @@ function CheckOutView() {
     const res = await fetch(`/api/tickets/${ticket.id}/checkout`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ paymentMethod, paymentNote, voucherCode: paymentMethod === "NC" ? voucherCode : undefined }),
+      body: JSON.stringify({ paymentMethod, paymentNote, voucherCode: paymentMethod === "NC" ? voucherCode : undefined, voucherPhotoUrl: paymentMethod === "NC" ? voucherPhotoUrl : undefined }),
     });
     const data = await res.json();
     setCompleting(false);
@@ -786,7 +807,7 @@ function CheckOutView() {
                 <button
                   key={m.method}
                   type="button"
-                  onClick={() => { setPaymentMethod(m.method); setVoucherCode(""); setVoucherStatus(null); }}
+                  onClick={() => { setPaymentMethod(m.method); setVoucherCode(""); setVoucherStatus(null); setVoucherPhotoUrl(null); }}
                   style={{
                     padding: "10px 16px", borderRadius: 8, fontSize: 14, cursor: "pointer",
                     background: paymentMethod === m.method ? "var(--brass)" : "var(--navy-2)",
@@ -855,6 +876,44 @@ function CheckOutView() {
                 {voucherStatus.valid ? "✓ Valid voucher — parking will be N/C" : `✗ ${voucherStatus.error}`}
               </div>
             )}
+
+            {/* Voucher photo for audit trail */}
+            <div style={{ marginTop: 10 }}>
+              <div style={{ fontSize: 12, color: "var(--slate2)", marginBottom: 6 }}>
+                📸 Photo of voucher (for audit)
+              </div>
+              <input
+                ref={voucherPhotoInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={handleVoucherPhoto}
+                style={{ display: "none" }}
+              />
+              {voucherPhotoUrl ? (
+                <div style={{ position: "relative", display: "inline-block" }}>
+                  <img src={voucherPhotoUrl} alt="Voucher" style={{ width: "100%", maxHeight: 200, objectFit: "cover", borderRadius: 8 }} />
+                  <button
+                    type="button"
+                    onClick={() => setVoucherPhotoUrl(null)}
+                    style={{ position: "absolute", top: 6, right: 6, background: "rgba(0,0,0,0.6)", border: "none", color: "#fff", borderRadius: 6, padding: "3px 8px", cursor: "pointer", fontSize: 12 }}
+                  >
+                    Retake
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{ width: "100%" }}
+                  onClick={() => voucherPhotoInputRef.current?.click()}
+                  disabled={voucherPhotoUploading}
+                >
+                  {voucherPhotoUploading ? "Uploading..." : "📷 Take photo of voucher"}
+                </button>
+              )}
+            </div>
+
             <div className="field-hint">Leave blank to proceed as N/C without a voucher.</div>
           </div>
         )}
@@ -1223,6 +1282,18 @@ function TicketHistoryView({ user, showGarageFilter }) {
                   </div>
                 </div>
               </div>
+              {viewingVoucher.voucherPhotoUrl && (
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ fontSize: 11, color: "var(--slate2)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                    Voucher photo
+                  </div>
+                  <img
+                    src={viewingVoucher.voucherPhotoUrl}
+                    alt="Voucher photo"
+                    style={{ width: "100%", maxHeight: 280, objectFit: "contain", borderRadius: 8, background: "var(--navy-2)" }}
+                  />
+                </div>
+              )}
             </div>
           )}
 

@@ -25,7 +25,7 @@ async function POST(req, { params }) {
 
   const { id } = params;
   const body = await req.json();
-  const { paymentMethod, paymentNote, voucherCode } = body || {};
+  const { paymentMethod, paymentNote, voucherCode, voucherPhotoUrl } = body || {};
 
   if (!VALID_METHODS.includes(paymentMethod)) {
     return new Response(JSON.stringify({ error: "Please select a valid payment method." }), { status: 400 });
@@ -114,7 +114,12 @@ async function POST(req, { params }) {
   if (voucher) {
     await prisma.nCVoucher.update({
       where: { id: voucher.id },
-      data: { status: "USED", usedByTicketId: updatedTicket.id, usedAt: checkOutTime },
+      data: {
+        status: "USED",
+        usedByTicketId: updatedTicket.id,
+        usedAt: checkOutTime,
+        voucherPhotoUrl: voucherPhotoUrl || null,
+      },
     });
   }
 

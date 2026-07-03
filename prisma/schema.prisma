@@ -63,6 +63,7 @@ model NCVoucher {
   createdBy      User      @relation(fields: [createdById], references: [id])
   usedByTicketId String?
   usedAt         DateTime?
+  voucherPhotoUrl String?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 }
