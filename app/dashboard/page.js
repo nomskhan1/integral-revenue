@@ -3026,10 +3026,24 @@ function BrandingView({ settings, onSaved }) {
     setError("");
     const reader = new FileReader();
     reader.onload = async (ev) => {
-      const dataUrl = ev.target.result;
-      setLogoPreview(dataUrl);
       try {
-        // Use the same working upload endpoint as vehicle photos
+        // Resize logo to max 800px wide before uploading to stay under 4MB limit
+        const dataUrl = await new Promise((resolve) => {
+          const img = new Image();
+          img.onload = () => {
+            const maxW = 800;
+            const scale = img.width > maxW ? maxW / img.width : 1;
+            const canvas = document.createElement("canvas");
+            canvas.width = Math.round(img.width * scale);
+            canvas.height = Math.round(img.height * scale);
+            canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+            resolve(canvas.toDataURL("image/png", 0.9));
+          };
+          img.src = ev.target.result;
+        });
+
+        setLogoPreview(dataUrl);
+
         const uploadRes = await fetch("/api/tickets/upload-photo", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -3037,10 +3051,9 @@ function BrandingView({ settings, onSaved }) {
         });
         const uploadData = await uploadRes.json();
         if (!uploadRes.ok || !uploadData.url) {
-          setError(uploadData.error || "Upload failed. Try again.");
+          setError(uploadData.error || "Upload failed — " + uploadRes.status);
           return;
         }
-        // Save URL to app settings
         const saveRes = await fetch("/api/settings", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -3053,7 +3066,7 @@ function BrandingView({ settings, onSaved }) {
         setSuccess("Logo uploaded!");
         setTimeout(() => setSuccess(""), 3000);
       } catch (err) {
-        setError("Upload failed. Try again.");
+        setError("Upload failed: " + err.message);
       } finally {
         setUploadingLogo(false);
       }
