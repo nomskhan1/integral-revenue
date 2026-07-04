@@ -11,7 +11,7 @@ async function PATCH(req, { params }) {
 
   const { id } = params;
   const body = await req.json();
-  const { name, address, hourlyRate } = body || {};
+  const { name, address, hourlyRate, logoUrl } = body || {};
 
   const updated = await prisma.garage.update({
     where: { id },
@@ -19,6 +19,7 @@ async function PATCH(req, { params }) {
       ...(name !== undefined ? { name } : {}),
       ...(address !== undefined ? { address } : {}),
       ...(hourlyRate !== undefined ? { hourlyRate: parseFloat(hourlyRate) || 0 } : {}),
+      ...(logoUrl !== undefined ? { logoUrl: logoUrl || null } : {}),
     },
   });
 

@@ -36,6 +36,10 @@ model User {
 }
 
 model Garage {
+  ...
+  logoUrl      String?    // ← add this line
+  ...
+}
   id        String   @id @default(cuid())
   name      String
   address   String?
