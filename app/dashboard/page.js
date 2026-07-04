@@ -189,6 +189,9 @@ export default function Dashboard() {
             <button className={tab === "users" ? "active" : ""} onClick={() => setTab("users")}>
               Admins
             </button>
+            <button className={tab === "branding" ? "active" : ""} onClick={() => setTab("branding")}>
+              Branding
+            </button>
           </div>
         )}
 
@@ -202,7 +205,7 @@ export default function Dashboard() {
         {tab === "garage-reports" && user.role === "GARAGE_MANAGER" && <GarageReportsView user={user} />}
         {tab === "ticket-history" && (user.role === "GARAGE_MANAGER" || isAdmin) && <TicketHistoryView user={user} showGarageFilter={isAdmin} logoUrl={appSettings.logoUrl} companyName={appSettings.companyName} />}
         {tab === "daily-closed" && (user.role === "GARAGE_MANAGER" || isAdmin) && <DailyClosedView user={user} showGarageFilter={isAdmin} logoUrl={appSettings.logoUrl} companyName={appSettings.companyName} />}
-        {tab === "branding" && isAdmin && <BrandingView settings={appSettings} onSaved={setAppSettings} />}
+        {tab === "branding" && (isAdmin || isSuperAdmin) && <BrandingView settings={appSettings} onSaved={setAppSettings} />}
         {tab === "vouchers" && (isAdmin || user.role === "GARAGE_MANAGER") && <VouchersView user={user} isAdmin={isAdmin} />}
         {tab === "revenue" && isAdmin && <RevenueDashboard user={user} />}
         {tab === "garages" && (isAdmin || isSuperAdmin) && <GaragesView currentUser={user} />}
@@ -2326,7 +2329,7 @@ function DownloadTicketListButton({ title, dateLabel, garageLabel, tickets, show
   async function handleExcel() {
     setExporting(true);
     try {
-      const ExcelJS = (await import("exceljs")).default;
+      const XLSX = await import("xlsx");
       const appName = companyName || "Integral Revenue";
       const METHOD_LABELS = {
         CASH: "Cash", CREDIT_CARD: "Credit Card", COUPON: "Coupon",
@@ -2334,22 +2337,22 @@ function DownloadTicketListButton({ title, dateLabel, garageLabel, tickets, show
       };
       const ZERO_FEE = new Set(["NC", "LOANER"]);
 
-      // Colour palette
-      const NAVY  = "FF131C2E";
-      const GOLD  = "FFC9A227";
-      const WHITE = "FFFFFFFF";
-      const CREAM = "FFF5F0E8";
-      const DARK  = "FF222222";
-      const MID   = "FF555555";
+      // ── Summary sheet ──────────────────────────────────────────
+      const summaryRows = [
+        [appName + " — " + title],
+        [],
+        ["Date Range:", dateLabel],
+        garageLabel ? ["Garage:", garageLabel] : null,
+        ["Total Tickets:", tickets.length],
+        ["Generated:", new Date().toLocaleString()],
+        [],
+        ["TOTALS BY CATEGORY"],
+        ["Category", "Amount", "Ticket Count"],
+      ].filter(Boolean);
 
-      const navyFill  = { type: "pattern", pattern: "solid", fgColor: { argb: NAVY } };
-      const creamFill = { type: "pattern", pattern: "solid", fgColor: { argb: CREAM } };
-      const goldFill  = { type: "pattern", pattern: "solid", fgColor: { argb: GOLD } };
-      const thinBorder = { style: "thin", color: { argb: "FFDDDDDD" } };
-      const rowBorder = { top: thinBorder, bottom: thinBorder };
-
-      // Totals
-      const totals = {}, counts = {};
+      // Count and total per method
+      const totals = {};
+      const counts = {};
       let grandTotal = 0;
       tickets.forEach((t) => {
         const key = t.paymentMethod || "OTHER";
@@ -2357,125 +2360,36 @@ function DownloadTicketListButton({ title, dateLabel, garageLabel, tickets, show
         if (!ZERO_FEE.has(key) && t.status === "COMPLETED") {
           totals[key] = (totals[key] || 0) + (t.feeAmount || 0);
           grandTotal += t.feeAmount || 0;
-        } else if (ZERO_FEE.has(key)) { totals[key] = 0; }
+        } else if (ZERO_FEE.has(key)) {
+          totals[key] = 0;
+        }
       });
 
-      const wb = new ExcelJS.Workbook();
-      wb.creator = appName;
-      wb.created = new Date();
-
-      // ── SHEET 1: Summary ─────────────────────────────────────
-      const ws1 = wb.addWorksheet("Summary");
-      ws1.columns = [
-        { width: 24 }, { width: 20 }, { width: 16 },
-      ];
-
-      // Title row
-      const titleRow = ws1.addRow([appName, "", ""]);
-      ws1.mergeCells(`A${titleRow.number}:C${titleRow.number}`);
-      titleRow.height = 32;
-      titleRow.getCell(1).style = {
-        font: { bold: true, size: 18, color: { argb: GOLD }, name: "Arial" },
-        fill: navyFill,
-        alignment: { vertical: "middle", horizontal: "left" },
-      };
-
-      // Subtitle row
-      const subRow = ws1.addRow([title, "", ""]);
-      ws1.mergeCells(`A${subRow.number}:C${subRow.number}`);
-      subRow.height = 22;
-      subRow.getCell(1).style = {
-        font: { bold: true, size: 12, color: { argb: WHITE }, name: "Arial" },
-        fill: navyFill,
-        alignment: { vertical: "middle" },
-      };
-
-      ws1.addRow([]); // spacer
-
-      // Meta info
-      const meta = [
-        ["Date Range", dateLabel],
-        ...(garageLabel ? [["Garage", garageLabel]] : []),
-        ["Total Tickets", tickets.length],
-        ["Generated", new Date().toLocaleString()],
-      ];
-      meta.forEach(([k, v]) => {
-        const row = ws1.addRow([k, v, ""]);
-        row.getCell(1).style = { font: { bold: true, size: 10, color: { argb: DARK }, name: "Arial" } };
-        row.getCell(2).style = { font: { size: 10, color: { argb: MID }, name: "Arial" } };
-      });
-
-      ws1.addRow([]); // spacer
-
-      // Category headers
-      const catHead = ws1.addRow(["CATEGORY", "AMOUNT", "TICKETS"]);
-      catHead.height = 20;
-      ["A", "B", "C"].forEach((col) => {
-        catHead.getCell(col).style = {
-          font: { bold: true, size: 10, color: { argb: WHITE }, name: "Arial" },
-          fill: navyFill,
-          alignment: { horizontal: "center", vertical: "middle" },
-          border: { bottom: { style: "medium", color: { argb: GOLD } } },
-        };
-      });
-
-      // Category data rows
-      Object.entries(totals).forEach(([m, v], i) => {
-        const fill = i % 2 === 1 ? creamFill : { type: "pattern", pattern: "solid", fgColor: { argb: WHITE } };
-        const row = ws1.addRow([
-          METHOD_LABELS[m] || m,
-          ZERO_FEE.has(m) ? "No charge" : `$${v.toFixed(2)}`,
-          `${counts[m]} ticket${counts[m] === 1 ? "" : "s"}`,
+      Object.entries(totals).forEach(([method, amount]) => {
+        summaryRows.push([
+          METHOD_LABELS[method] || method,
+          ZERO_FEE.has(method) ? "No charge" : amount,
+          counts[method],
         ]);
-        row.getCell(1).style = { font: { size: 10, name: "Arial" }, fill, border: rowBorder };
-        row.getCell(2).style = { font: { bold: true, size: 10, name: "Arial" }, fill, border: rowBorder, alignment: { horizontal: "right" } };
-        row.getCell(3).style = { font: { size: 10, name: "Arial" }, fill, border: rowBorder, alignment: { horizontal: "center" } };
       });
 
-      ws1.addRow([]); // spacer
+      summaryRows.push([]);
+      summaryRows.push(["Running Total:", grandTotal]);
 
-      // Total row
-      const totalRow = ws1.addRow(["RUNNING TOTAL", `$${grandTotal.toFixed(2)}`, ""]);
-      totalRow.height = 22;
-      totalRow.getCell(1).style = { font: { bold: true, size: 12, color: { argb: NAVY }, name: "Arial" }, fill: goldFill, alignment: { vertical: "middle" } };
-      totalRow.getCell(2).style = { font: { bold: true, size: 12, color: { argb: NAVY }, name: "Arial" }, fill: goldFill, alignment: { horizontal: "right", vertical: "middle" } };
-      totalRow.getCell(3).style = { fill: goldFill };
-
-      // ── SHEET 2: Tickets ──────────────────────────────────────
-      const ws2 = wb.addWorksheet("Tickets");
+      // ── Detail sheet ───────────────────────────────────────────
       const headers = [
         "Ticket #", ...(showGarageColumn ? ["Garage"] : []),
         "Unit", "Vehicle", "Plate",
         "Check-In", "Check-Out", "Duration",
         "Status", "Payment", "Amount",
       ];
-      ws2.columns = headers.map((h) => ({
-        header: h,
-        width: h === "Vehicle" ? 30 : h.includes("Check") ? 22 : h === "Amount" || h === "Payment" ? 14 : 14,
-      }));
 
-      // Style header row
-      const hRow = ws2.getRow(1);
-      hRow.height = 20;
-      headers.forEach((_, i) => {
-        hRow.getCell(i + 1).style = {
-          font: { bold: true, size: 10, color: { argb: WHITE }, name: "Arial" },
-          fill: navyFill,
-          alignment: { horizontal: "center", vertical: "middle" },
-          border: { bottom: { style: "medium", color: { argb: GOLD } } },
-        };
-      });
-
-      // Data rows
-      tickets.forEach((t, ri) => {
-        const fill = ri % 2 === 0
-          ? { type: "pattern", pattern: "solid", fgColor: { argb: WHITE } }
-          : creamFill;
+      const detailRows = [headers];
+      tickets.forEach((t) => {
         const dur = t.durationMinutes
-          ? `${Math.floor(t.durationMinutes / 60)}h ${t.durationMinutes % 60}m` : "";
-        const amt = t.status === "COMPLETED"
-          ? (ZERO_FEE.has(t.paymentMethod) ? "No charge" : `$${(t.feeAmount || 0).toFixed(2)}`) : "";
-        const rowData = [
+          ? `${Math.floor(t.durationMinutes / 60)}h ${t.durationMinutes % 60}m`
+          : "";
+        detailRows.push([
           "#" + t.ticketNumber,
           ...(showGarageColumn ? [t.garage?.name || ""] : []),
           t.apartmentNumber || "",
@@ -2486,35 +2400,32 @@ function DownloadTicketListButton({ title, dateLabel, garageLabel, tickets, show
           dur,
           t.status || "",
           METHOD_LABELS[t.paymentMethod] || t.paymentMethod || "",
-          amt,
-        ];
-        const row = ws2.addRow(rowData);
-        row.eachCell({ includeEmpty: true }, (cell, colNum) => {
-          const isAmt = colNum === rowData.length;
-          cell.style = {
-            font: { size: 10, color: { argb: DARK }, name: "Arial" },
-            fill,
-            alignment: { horizontal: isAmt ? "right" : "left" },
-            border: rowBorder,
-          };
-        });
+          t.status === "COMPLETED"
+            ? (ZERO_FEE.has(t.paymentMethod) ? "No charge" : (t.feeAmount || 0))
+            : "",
+        ]);
       });
 
-      // Freeze top row
-      ws2.views = [{ state: "frozen", ySplit: 1 }];
+      // ── Build workbook ────────────────────────────────────────
+      const wb = XLSX.utils.book_new();
+
+      const wsSummary = XLSX.utils.aoa_to_sheet(summaryRows);
+      wsSummary["!cols"] = [{ wch: 20 }, { wch: 16 }, { wch: 14 }];
+      XLSX.utils.book_append_sheet(wb, wsSummary, "Summary");
+
+      const wsDetail = XLSX.utils.aoa_to_sheet(detailRows);
+      wsDetail["!cols"] = headers.map((h) =>
+        h === "Vehicle" ? { wch: 28 } : h.includes("Check") ? { wch: 20 } : { wch: 14 }
+      );
+      XLSX.utils.book_append_sheet(wb, wsDetail, "Tickets");
 
       // ── Download ──────────────────────────────────────────────
-      const buf = await wb.xlsx.writeBuffer();
-      const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${appName} - ${title} - ${new Date().toLocaleDateString()}.xlsx`.replace(/[/\\?%*:|"<>]/g, "-");
-      a.click();
-      URL.revokeObjectURL(url);
+      const fileName = `${appName} - ${title} - ${new Date().toLocaleDateString()}.xlsx`
+        .replace(/[/\\?%*:|"<>]/g, "-");
+      XLSX.writeFile(wb, fileName);
     } catch (err) {
       console.error("Excel export failed:", err);
-      alert("Excel export failed: " + err.message);
+      alert("Excel export failed. Try again.");
     } finally {
       setExporting(false);
     }
