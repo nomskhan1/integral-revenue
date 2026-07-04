@@ -3027,46 +3027,34 @@ function BrandingView({ settings, onSaved }) {
     const reader = new FileReader();
     reader.onload = async (ev) => {
       try {
-        // Resize logo to max 800px wide before uploading to stay under 4MB limit
+        // Resize to max 400px wide to keep DB size small
         const dataUrl = await new Promise((resolve) => {
           const img = new Image();
           img.onload = () => {
-            const maxW = 800;
+            const maxW = 400;
             const scale = img.width > maxW ? maxW / img.width : 1;
             const canvas = document.createElement("canvas");
             canvas.width = Math.round(img.width * scale);
             canvas.height = Math.round(img.height * scale);
             canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
-            resolve(canvas.toDataURL("image/png", 0.9));
+            resolve(canvas.toDataURL("image/png", 0.85));
           };
           img.src = ev.target.result;
         });
-
         setLogoPreview(dataUrl);
-
-        const uploadRes = await fetch("/api/tickets/upload-photo", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageBase64: dataUrl }),
-        });
-        const uploadData = await uploadRes.json();
-        if (!uploadRes.ok || !uploadData.url) {
-          setError("Upload failed: " + (uploadData.error || uploadRes.status));
-          return;
-        }
+        // Save base64 directly to AppSettings — no Blob/token needed
         const saveRes = await fetch("/api/settings", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ logoUrl: uploadData.url }),
+          body: JSON.stringify({ logoUrl: dataUrl }),
         });
         const saveData = await saveRes.json();
-        if (!saveRes.ok) { setError(saveData.error); return; }
+        if (!saveRes.ok) { setError(saveData.error || "Save failed."); return; }
         onSaved(saveData);
-        setLogoPreview(uploadData.url);
-        setSuccess("Logo uploaded!");
+        setSuccess("Logo saved!");
         setTimeout(() => setSuccess(""), 3000);
       } catch (err) {
-        setError("Upload failed: " + err.message);
+        setError("Failed: " + err.message);
       } finally {
         setUploadingLogo(false);
       }
