@@ -7,12 +7,12 @@ async function GET(req) {
     return new Response(JSON.stringify({ user: null }), { status: 200 });
   }
 
-  // Include the garage name so the topbar can display it.
+  // Include garage name AND logoUrl so the header can show the garage logo.
   let garage = null;
   if (session.garageId) {
     garage = await prisma.garage.findUnique({
       where: { id: session.garageId },
-      select: { id: true, name: true },
+      select: { id: true, name: true, logoUrl: true },
     });
   }
 
