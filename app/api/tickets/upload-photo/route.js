@@ -38,7 +38,7 @@ async function POST(req) {
     return new Response(JSON.stringify({ url: blob.url }), { status: 200 });
   } catch (err) {
     console.error("Photo upload failed:", err);
-    return new Response(JSON.stringify({ error: "Upload failed. Please try again." }), {
+    return new Response(JSON.stringify({ error: err.message || "Upload failed. Please try again." }), {
       status: 500,
     });
   }

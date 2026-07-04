@@ -3051,7 +3051,7 @@ function BrandingView({ settings, onSaved }) {
         });
         const uploadData = await uploadRes.json();
         if (!uploadRes.ok || !uploadData.url) {
-          setError(uploadData.error || "Upload failed — " + uploadRes.status);
+          setError("Upload failed: " + (uploadData.error || uploadRes.status));
           return;
         }
         const saveRes = await fetch("/api/settings", {
