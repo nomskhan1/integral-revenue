@@ -2218,10 +2218,13 @@ function PrintableTicketList({ title, dateLabel, garageLabel, tickets, showGarag
   };
   const ZERO_FEE = new Set(["NC", "LOANER"]);
 
+  // Track both total amount and ticket count per method
   const totalsByMethod = {};
+  const countsByMethod = {};
   let grandTotal = 0;
   tickets.forEach((t) => {
     const key = t.paymentMethod || "OTHER";
+    countsByMethod[key] = (countsByMethod[key] || 0) + 1;
     if (ZERO_FEE.has(key)) {
       totalsByMethod[key] = (totalsByMethod[key] || 0) + 1;
     } else if (t.status === "COMPLETED") {
@@ -2256,6 +2259,9 @@ function PrintableTicketList({ title, dateLabel, garageLabel, tickets, showGarag
               <div key={method} className="pr-cell">
                 <div className="label">{METHOD_LABELS[method] || method}</div>
                 <div className="value">{ZERO_FEE.has(method) ? `${value} tickets` : money(value)}</div>
+                <div style={{ fontSize: 10, color: "#888", marginTop: 2 }}>
+                  {countsByMethod[method]} ticket{countsByMethod[method] === 1 ? "" : "s"}
+                </div>
               </div>
             ))}
           </div>
