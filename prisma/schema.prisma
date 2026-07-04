@@ -36,24 +36,21 @@ model User {
 }
 
 model Garage {
-  ...
-  logoUrl      String?    // ← add this line
-  ...
-}
   id        String   @id @default(cuid())
   name      String
   address   String?
   // Hourly parking rate, used in Phase 2's ticket/fee calculation.
   hourlyRate Float?  @default(0)
-  createdAt DateTime @default(now())
+  logoUrl    String?
+  createdAt  DateTime @default(now())
 
-  users        User[]
-  shiftReports ShiftReport[]
-  tickets      Ticket[]
-  rateTiers    RateTier[]
+  users          User[]
+  shiftReports   ShiftReport[]
+  tickets        Ticket[]
+  rateTiers      RateTier[]
   paymentMethods GaragePaymentMethod[]
   shiftTemplates ShiftTemplate[]
-  ncVouchers   NCVoucher[]
+  ncVouchers     NCVoucher[]
 }
 
 model NCVoucher {
