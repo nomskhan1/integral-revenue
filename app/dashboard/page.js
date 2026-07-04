@@ -3029,15 +3029,27 @@ function BrandingView({ settings, onSaved }) {
       const dataUrl = ev.target.result;
       setLogoPreview(dataUrl);
       try {
-        const res = await fetch("/api/settings/upload-logo", {
+        // Use the same working upload endpoint as vehicle photos
+        const uploadRes = await fetch("/api/tickets/upload-photo", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ imageBase64: dataUrl }),
         });
-        const data = await res.json();
-        if (!res.ok) { setError(data.error); return; }
-        onSaved((prev) => ({ ...prev, logoUrl: data.url }));
-        setLogoPreview(data.url);
+        const uploadData = await uploadRes.json();
+        if (!uploadRes.ok || !uploadData.url) {
+          setError(uploadData.error || "Upload failed. Try again.");
+          return;
+        }
+        // Save URL to app settings
+        const saveRes = await fetch("/api/settings", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ logoUrl: uploadData.url }),
+        });
+        const saveData = await saveRes.json();
+        if (!saveRes.ok) { setError(saveData.error); return; }
+        onSaved(saveData);
+        setLogoPreview(uploadData.url);
         setSuccess("Logo uploaded!");
         setTimeout(() => setSuccess(""), 3000);
       } catch (err) {
