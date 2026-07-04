@@ -3201,6 +3201,91 @@ function VouchersView({ user, isAdmin }) {
   );
 }
 
+function GarageLogoUploader({ garage, onUpdated }) {
+  const [preview, setPreview] = useState(garage.logoUrl || null);
+  const [uploading, setUploading] = useState(false);
+  const [msg, setMsg] = useState("");
+  const inputRef = useRef(null);
+
+  async function resizeAndSave(file) {
+    setUploading(true); setMsg("");
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      try {
+        const dataUrl = await new Promise((resolve) => {
+          const img = new Image();
+          img.onload = () => {
+            const maxW = 400;
+            const scale = img.width > maxW ? maxW / img.width : 1;
+            const canvas = document.createElement("canvas");
+            canvas.width = Math.round(img.width * scale);
+            canvas.height = Math.round(img.height * scale);
+            canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+            resolve(canvas.toDataURL("image/png", 0.85));
+          };
+          img.src = ev.target.result;
+        });
+        const res = await fetch(`/api/garages/${garage.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ logoUrl: dataUrl }),
+        });
+        const data = await res.json();
+        if (!res.ok) { setMsg("Failed: " + (data.error || res.status)); return; }
+        setPreview(dataUrl);
+        onUpdated({ ...garage, logoUrl: dataUrl });
+        setMsg("Saved!");
+        setTimeout(() => setMsg(""), 2000);
+      } catch (err) {
+        setMsg("Error: " + err.message);
+      } finally {
+        setUploading(false);
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function removeLogo() {
+    const res = await fetch(`/api/garages/${garage.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ logoUrl: null }),
+    });
+    if (res.ok) { setPreview(null); onUpdated({ ...garage, logoUrl: null }); }
+  }
+
+  return (
+    <div className="list-row" style={{ display: "block" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 600, fontSize: 14 }}>{garage.name}</div>
+          {msg && (
+            <div style={{ fontSize: 11, marginTop: 2, color: msg.startsWith("Failed") || msg.startsWith("Error") ? "var(--red)" : "var(--green)" }}>
+              {msg}
+            </div>
+          )}
+        </div>
+        {preview && (
+          <img src={preview} alt="" style={{ height: 40, maxWidth: 120, objectFit: "contain", borderRadius: 6, background: "var(--navy-2)", padding: 4 }} />
+        )}
+        <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+          <input ref={inputRef} type="file" accept="image/*" onChange={(e) => e.target.files?.[0] && resizeAndSave(e.target.files[0])} style={{ display: "none" }} />
+          <button className="btn btn-ghost" style={{ width: "auto", padding: "0 12px", fontSize: 12 }}
+            onClick={() => inputRef.current?.click()} disabled={uploading}>
+            {uploading ? "Saving..." : preview ? "Change" : "Upload"}
+          </button>
+          {preview && (
+            <button className="btn btn-ghost" style={{ width: "auto", padding: "0 10px", fontSize: 12, color: "var(--red)" }}
+              onClick={removeLogo}>
+              Remove
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function BrandingView({ settings, onSaved }) {
   const [companyName, setCompanyName] = useState(settings.companyName || "");
   const [logoPreview, setLogoPreview] = useState(settings.logoUrl || null);
@@ -3208,17 +3293,20 @@ function BrandingView({ settings, onSaved }) {
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [garages, setGarages] = useState([]);
   const logoInputRef = useRef(null);
+
+  useEffect(() => {
+    fetch("/api/garages").then(r => r.json()).then(d => { if (Array.isArray(d)) setGarages(d); }).catch(() => {});
+  }, []);
 
   async function handleLogoSelect(e) {
     const file = e.target.files?.[0];
     if (!file) return;
-    setUploadingLogo(true);
-    setError("");
+    setUploadingLogo(true); setError("");
     const reader = new FileReader();
     reader.onload = async (ev) => {
       try {
-        // Resize to max 400px wide to keep DB size small
         const dataUrl = await new Promise((resolve) => {
           const img = new Image();
           img.onload = () => {
@@ -3233,7 +3321,6 @@ function BrandingView({ settings, onSaved }) {
           img.src = ev.target.result;
         });
         setLogoPreview(dataUrl);
-        // Save base64 directly to AppSettings — no Blob/token needed
         const saveRes = await fetch("/api/settings", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -3255,8 +3342,7 @@ function BrandingView({ settings, onSaved }) {
 
   async function saveSettings(e) {
     e.preventDefault();
-    setSaving(true);
-    setError("");
+    setSaving(true); setError("");
     const res = await fetch("/api/settings", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -3278,17 +3364,17 @@ function BrandingView({ settings, onSaved }) {
 
       <div className="card">
         <div style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--brass-light)", marginBottom: 14 }}>
-          App Logo
+          Default App Logo
         </div>
         {logoPreview && (
           <img src={logoPreview} alt="Logo preview" style={{ maxHeight: 80, maxWidth: "100%", objectFit: "contain", marginBottom: 14, borderRadius: 8 }} />
         )}
         <input ref={logoInputRef} type="file" accept="image/*" onChange={handleLogoSelect} style={{ display: "none" }} />
         <button className="btn btn-ghost" onClick={() => logoInputRef.current?.click()} disabled={uploadingLogo}>
-          {uploadingLogo ? "Uploading..." : logoPreview ? "Change logo" : "Upload logo"}
+          {uploadingLogo ? "Saving..." : logoPreview ? "Change logo" : "Upload logo"}
         </button>
         <div className="field-hint" style={{ marginTop: 8 }}>
-          Recommended: PNG with transparent background, at least 200×80px. This appears in the top-left corner of the app for all users.
+          Shown in the header for all users. Garages without their own logo will use this one.
         </div>
       </div>
 
@@ -3302,6 +3388,25 @@ function BrandingView({ settings, onSaved }) {
           {saving ? "Saving..." : "Save settings"}
         </button>
       </form>
+
+      <div style={{ marginTop: 28 }}>
+        <div style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--brass-light)", marginBottom: 4 }}>
+          Per-Garage Logos
+        </div>
+        <div className="field-hint" style={{ marginBottom: 14 }}>
+          Upload a logo for each garage. Employees and managers at that garage will see it in the header.
+          If no garage logo is set, the default logo above is used.
+        </div>
+        {garages.length === 0 ? (
+          <div className="empty-state">No garages found.</div>
+        ) : garages.map(g => (
+          <GarageLogoUploader
+            key={g.id}
+            garage={g}
+            onUpdated={(updated) => setGarages(prev => prev.map(x => x.id === updated.id ? updated : x))}
+          />
+        ))}
+      </div>
     </>
   );
 }
