@@ -1242,6 +1242,27 @@ function TicketHistoryView({ user, showGarageFilter }) {
   const [viewing, setViewing] = useState(null);
   const [viewingVoucher, setViewingVoucher] = useState(null);
   const [voucherQr, setVoucherQr] = useState(null);
+  const [categoryFilter, setCategoryFilter] = useState([]); // multi-select
+
+  const ALL_CATEGORIES = [
+    { value: "CASH", label: "Cash" },
+    { value: "CREDIT_CARD", label: "Credit Card" },
+    { value: "COUPON", label: "Coupon" },
+    { value: "CHARGE_BACK", label: "Charge Back" },
+    { value: "NC", label: "N/C" },
+    { value: "LOANER", label: "Loaner" },
+  ];
+
+  function toggleCategory(val) {
+    setCategoryFilter(prev =>
+      prev.includes(val) ? prev.filter(c => c !== val) : [...prev, val]
+    );
+  }
+
+  // Apply category filter client-side after fetching
+  const filteredTickets = categoryFilter.length === 0
+    ? tickets
+    : tickets.filter(t => categoryFilter.includes(t.paymentMethod));
 
   // Load voucher info when viewing an N/C ticket
   useEffect(() => {
@@ -1464,20 +1485,56 @@ function TicketHistoryView({ user, showGarageFilter }) {
         )}
       </div>
 
+      {/* Multi-select category filter */}
+      <div className="field">
+        <label>
+          Category
+          {categoryFilter.length > 0 && (
+            <button
+              onClick={() => setCategoryFilter([])}
+              style={{ marginLeft: 10, background: "none", border: "none", color: "var(--brass-light)", fontSize: 11, cursor: "pointer", textDecoration: "underline" }}
+            >
+              Clear
+            </button>
+          )}
+        </label>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 4 }}>
+          {ALL_CATEGORIES.map(cat => (
+            <button
+              key={cat.value}
+              type="button"
+              onClick={() => toggleCategory(cat.value)}
+              style={{
+                padding: "6px 14px", borderRadius: 20, fontSize: 13, cursor: "pointer",
+                background: categoryFilter.includes(cat.value) ? "var(--brass)" : "var(--navy-2)",
+                color: categoryFilter.includes(cat.value) ? "var(--navy)" : "var(--cream)",
+                border: categoryFilter.includes(cat.value) ? "none" : "1px solid var(--line)",
+                fontWeight: categoryFilter.includes(cat.value) ? 700 : 400,
+              }}
+            >
+              {cat.label}
+            </button>
+          ))}
+        </div>
+        {categoryFilter.length > 0 && (
+          <div className="field-hint">{filteredTickets.length} of {tickets.length} tickets match selected categories</div>
+        )}
+      </div>
+
       <DownloadTicketListButton
         title="Ticket History"
         dateLabel={fromDate || toDate ? `${fromDate || "Any"} to ${toDate || "Any"}` : "All dates"}
         garageLabel={showGarageFilter ? (garages.find(g => g.id === garageFilter)?.name || "All garages") : undefined}
-        tickets={tickets}
+        tickets={filteredTickets}
         showGarageColumn={showGarageFilter}
       />
 
-      {tickets.length === 0 ? (
+      {filteredTickets.length === 0 ? (
         <div className="empty-state">
           <div className="big">No tickets match this search</div>
         </div>
       ) : (
-        tickets.map((t) => (
+        filteredTickets.map((t) => (
           <div key={t.id} className="list-row" onClick={() => setViewing(t)} style={{ cursor: "pointer", display: "block" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div>
