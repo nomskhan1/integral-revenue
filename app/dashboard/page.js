@@ -2334,22 +2334,8 @@ function DownloadTicketListButton({ title, dateLabel, garageLabel, tickets, show
       };
       const ZERO_FEE = new Set(["NC", "LOANER"]);
 
-      // ── Summary sheet ──────────────────────────────────────────
-      const summaryRows = [
-        [appName + " — " + title],
-        [],
-        ["Date Range:", dateLabel],
-        garageLabel ? ["Garage:", garageLabel] : null,
-        ["Total Tickets:", tickets.length],
-        ["Generated:", new Date().toLocaleString()],
-        [],
-        ["TOTALS BY CATEGORY"],
-        ["Category", "Amount", "Ticket Count"],
-      ].filter(Boolean);
-
-      // Count and total per method
-      const totals = {};
-      const counts = {};
+      // ── Totals calculation ─────────────────────────────────────
+      const totals = {}, counts = {};
       let grandTotal = 0;
       tickets.forEach((t) => {
         const key = t.paymentMethod || "OTHER";
@@ -2357,36 +2343,109 @@ function DownloadTicketListButton({ title, dateLabel, garageLabel, tickets, show
         if (!ZERO_FEE.has(key) && t.status === "COMPLETED") {
           totals[key] = (totals[key] || 0) + (t.feeAmount || 0);
           grandTotal += t.feeAmount || 0;
-        } else if (ZERO_FEE.has(key)) {
-          totals[key] = 0;
-        }
+        } else if (ZERO_FEE.has(key)) { totals[key] = 0; }
       });
 
-      Object.entries(totals).forEach(([method, amount]) => {
-        summaryRows.push([
-          METHOD_LABELS[method] || method,
-          ZERO_FEE.has(method) ? "No charge" : amount,
-          counts[method],
-        ]);
+      const wb = XLSX.utils.book_new();
+
+      // ── Styles ────────────────────────────────────────────────
+      const NAVY = "131C2E", GOLD = "C9A227", WHITE = "FFFFFF", CREAM = "F5F0E8", GRAY = "777777", DARK = "222222";
+      const s = {
+        title:    { font: { bold: true, sz: 16, color: { rgb: GOLD } }, fill: { fgColor: { rgb: NAVY } }, alignment: { horizontal: "left" } },
+        subtitle: { font: { bold: true, sz: 11, color: { rgb: WHITE } }, fill: { fgColor: { rgb: NAVY } } },
+        metaKey:  { font: { bold: true, sz: 10, color: { rgb: NAVY } } },
+        metaVal:  { font: { sz: 10, color: { rgb: GRAY } } },
+        colHead:  { font: { bold: true, sz: 10, color: { rgb: WHITE } }, fill: { fgColor: { rgb: NAVY } }, alignment: { horizontal: "center" }, border: { bottom: { style: "medium", color: { rgb: GOLD } } } },
+        dataLeft: { font: { sz: 10, color: { rgb: DARK } }, border: { bottom: { style: "thin", color: { rgb: "DDDDDD" } } } },
+        dataRight:{ font: { sz: 10, color: { rgb: DARK } }, border: { bottom: { style: "thin", color: { rgb: "DDDDDD" } } }, alignment: { horizontal: "right" } },
+        dataCtr:  { font: { sz: 10, color: { rgb: DARK } }, border: { bottom: { style: "thin", color: { rgb: "DDDDDD" } } }, alignment: { horizontal: "center" } },
+        altLeft:  { font: { sz: 10, color: { rgb: DARK } }, fill: { fgColor: { rgb: CREAM } }, border: { bottom: { style: "thin", color: { rgb: "DDDDDD" } } } },
+        altRight: { font: { sz: 10, color: { rgb: DARK } }, fill: { fgColor: { rgb: CREAM } }, border: { bottom: { style: "thin", color: { rgb: "DDDDDD" } } }, alignment: { horizontal: "right" } },
+        altCtr:   { font: { sz: 10, color: { rgb: DARK } }, fill: { fgColor: { rgb: CREAM } }, border: { bottom: { style: "thin", color: { rgb: "DDDDDD" } } }, alignment: { horizontal: "center" } },
+        totalKey: { font: { bold: true, sz: 11, color: { rgb: NAVY } }, fill: { fgColor: { rgb: GOLD } } },
+        totalVal: { font: { bold: true, sz: 11, color: { rgb: NAVY } }, fill: { fgColor: { rgb: GOLD } }, alignment: { horizontal: "right" } },
+        totalBlk: { fill: { fgColor: { rgb: GOLD } } },
+      };
+
+      const cell = (ws, r, c, v, style) => {
+        const addr = XLSX.utils.encode_cell({ r, c });
+        const t = typeof v === "number" ? "n" : "s";
+        ws[addr] = { t, v, s: style };
+      };
+
+      // ── Summary sheet ─────────────────────────────────────────
+      const ws1 = { "!ref": "A1:C50" };
+
+      let r = 0;
+      cell(ws1, r, 0, appName, s.title);
+      cell(ws1, r, 1, "", s.title);
+      cell(ws1, r, 2, "", s.title);
+      r++;
+      cell(ws1, r, 0, title, s.subtitle);
+      cell(ws1, r, 1, "", s.subtitle);
+      cell(ws1, r, 2, "", s.subtitle);
+      r += 2;
+
+      const meta = [
+        ["Date Range", dateLabel],
+        ...(garageLabel ? [["Garage", garageLabel]] : []),
+        ["Total Tickets", String(tickets.length)],
+        ["Generated", new Date().toLocaleString()],
+      ];
+      meta.forEach(([k, v]) => {
+        cell(ws1, r, 0, k, s.metaKey);
+        cell(ws1, r, 1, v, s.metaVal);
+        cell(ws1, r, 2, "", {});
+        r++;
       });
 
-      summaryRows.push([]);
-      summaryRows.push(["Running Total:", grandTotal]);
+      r++;
+      cell(ws1, r, 0, "CATEGORY", s.colHead);
+      cell(ws1, r, 1, "AMOUNT", s.colHead);
+      cell(ws1, r, 2, "TICKETS", s.colHead);
+      r++;
 
-      // ── Detail sheet ───────────────────────────────────────────
+      Object.entries(totals).forEach(([m, v], i) => {
+        const isAlt = i % 2 === 1;
+        cell(ws1, r, 0, METHOD_LABELS[m] || m, isAlt ? s.altLeft : s.dataLeft);
+        cell(ws1, r, 1, ZERO_FEE.has(m) ? "No charge" : `$${v.toFixed(2)}`, isAlt ? s.altRight : s.dataRight);
+        cell(ws1, r, 2, `${counts[m]} ticket${counts[m] === 1 ? "" : "s"}`, isAlt ? s.altCtr : s.dataCtr);
+        r++;
+      });
+
+      r++;
+      cell(ws1, r, 0, "RUNNING TOTAL", s.totalKey);
+      cell(ws1, r, 1, `$${grandTotal.toFixed(2)}`, s.totalVal);
+      cell(ws1, r, 2, "", s.totalBlk);
+
+      ws1["!ref"] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r, c: 2 } });
+      ws1["!cols"] = [{ wch: 24 }, { wch: 18 }, { wch: 16 }];
+      ws1["!merges"] = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: 2 } },
+        { s: { r: 1, c: 0 }, e: { r: 1, c: 2 } },
+      ];
+      XLSX.utils.book_append_sheet(wb, ws1, "Summary");
+
+      // ── Tickets detail sheet ──────────────────────────────────
       const headers = [
         "Ticket #", ...(showGarageColumn ? ["Garage"] : []),
         "Unit", "Vehicle", "Plate",
         "Check-In", "Check-Out", "Duration",
         "Status", "Payment", "Amount",
       ];
+      const ws2 = { "!ref": "A1:Z1" };
 
-      const detailRows = [headers];
-      tickets.forEach((t) => {
-        const dur = t.durationMinutes
-          ? `${Math.floor(t.durationMinutes / 60)}h ${t.durationMinutes % 60}m`
-          : "";
-        detailRows.push([
+      // Header row
+      headers.forEach((h, c) => cell(ws2, 0, c, h, s.colHead));
+
+      // Data rows
+      tickets.forEach((t, ri) => {
+        const isAlt = ri % 2 === 1;
+        const L = isAlt ? s.altLeft : s.dataLeft;
+        const R = isAlt ? s.altRight : s.dataRight;
+        const dur = t.durationMinutes ? `${Math.floor(t.durationMinutes / 60)}h ${t.durationMinutes % 60}m` : "";
+        const amt = t.status === "COMPLETED" ? (ZERO_FEE.has(t.paymentMethod) ? "No charge" : `$${(t.feeAmount || 0).toFixed(2)}`) : "";
+        const row = [
           "#" + t.ticketNumber,
           ...(showGarageColumn ? [t.garage?.name || ""] : []),
           t.apartmentNumber || "",
@@ -2397,24 +2456,19 @@ function DownloadTicketListButton({ title, dateLabel, garageLabel, tickets, show
           dur,
           t.status || "",
           METHOD_LABELS[t.paymentMethod] || t.paymentMethod || "",
-          t.status === "COMPLETED"
-            ? (ZERO_FEE.has(t.paymentMethod) ? "No charge" : (t.feeAmount || 0))
-            : "",
-        ]);
+          amt,
+        ];
+        row.forEach((v, c) => cell(ws2, ri + 1, c, v, c === row.length - 1 ? R : L));
       });
 
-      // ── Build workbook ────────────────────────────────────────
-      const wb = XLSX.utils.book_new();
-
-      const wsSummary = XLSX.utils.aoa_to_sheet(summaryRows);
-      wsSummary["!cols"] = [{ wch: 20 }, { wch: 16 }, { wch: 14 }];
-      XLSX.utils.book_append_sheet(wb, wsSummary, "Summary");
-
-      const wsDetail = XLSX.utils.aoa_to_sheet(detailRows);
-      wsDetail["!cols"] = headers.map((h) =>
-        h === "Vehicle" ? { wch: 28 } : h.includes("Check") ? { wch: 20 } : { wch: 14 }
-      );
-      XLSX.utils.book_append_sheet(wb, wsDetail, "Tickets");
+      ws2["!ref"] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: tickets.length, c: headers.length - 1 } });
+      ws2["!cols"] = headers.map((h) => {
+        if (h === "Vehicle") return { wch: 28 };
+        if (h.includes("Check")) return { wch: 22 };
+        if (h === "Amount" || h === "Payment") return { wch: 14 };
+        return { wch: 14 };
+      });
+      XLSX.utils.book_append_sheet(wb, ws2, "Tickets");
 
       // ── Download ──────────────────────────────────────────────
       const fileName = `${appName} - ${title} - ${new Date().toLocaleDateString()}.xlsx`
@@ -2431,10 +2485,6 @@ function DownloadTicketListButton({ title, dateLabel, garageLabel, tickets, show
   return (
     <>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-        <button className="btn btn-ghost" onClick={handlePrint} disabled={printing || !tickets || tickets.length === 0}
-          style={{ flex: 1 }}>
-          {printing ? "Preparing..." : "🖨️ Print / PDF Report"}
-        </button>
         <button className="btn btn-ghost" onClick={handleExcel} disabled={exporting || !tickets || tickets.length === 0}
           style={{ flex: 1 }}>
           {exporting ? "Exporting..." : "📊 Download Excel"}
