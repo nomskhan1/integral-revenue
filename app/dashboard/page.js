@@ -3635,9 +3635,11 @@ function GaragesView({ currentUser }) {
           <button className="btn btn-ghost" type="button" onClick={() => setShowForm(false)}>Cancel</button>
         </form>
       ) : (
-        <button className="btn btn-ghost" onClick={() => setShowForm(true)} style={{ marginTop: 14 }}>
-          + Add a garage
-        </button>
+        currentUser.role === "SUPER_ADMIN" && (
+          <button className="btn btn-ghost" onClick={() => setShowForm(true)} style={{ marginTop: 14 }}>
+            + Add a garage
+          </button>
+        )
       )}
     </>
   );

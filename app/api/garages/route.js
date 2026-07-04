@@ -26,8 +26,8 @@ async function GET(req) {
 
 async function POST(req) {
   const session = getSessionFromRequest(req);
-  if (!session || (session.role !== "SUPER_ADMIN" && session.role !== "ADMIN")) {
-    return new Response(JSON.stringify({ error: "Super Admin or Admin access required." }), {
+  if (!session || session.role !== "SUPER_ADMIN") {
+    return new Response(JSON.stringify({ error: "Only Super Admin can add garages." }), {
       status: 403,
     });
   }
