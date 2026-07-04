@@ -189,6 +189,9 @@ export default function Dashboard() {
             <button className={tab === "users" ? "active" : ""} onClick={() => setTab("users")}>
               Admins
             </button>
+            <button className={tab === "branding" ? "active" : ""} onClick={() => setTab("branding")}>
+              Branding
+            </button>
           </div>
         )}
 
@@ -202,7 +205,7 @@ export default function Dashboard() {
         {tab === "garage-reports" && user.role === "GARAGE_MANAGER" && <GarageReportsView user={user} />}
         {tab === "ticket-history" && (user.role === "GARAGE_MANAGER" || isAdmin) && <TicketHistoryView user={user} showGarageFilter={isAdmin} logoUrl={appSettings.logoUrl} companyName={appSettings.companyName} />}
         {tab === "daily-closed" && (user.role === "GARAGE_MANAGER" || isAdmin) && <DailyClosedView user={user} showGarageFilter={isAdmin} logoUrl={appSettings.logoUrl} companyName={appSettings.companyName} />}
-        {tab === "branding" && isAdmin && <BrandingView settings={appSettings} onSaved={setAppSettings} />}
+        {tab === "branding" && (isAdmin || isSuperAdmin) && <BrandingView settings={appSettings} onSaved={setAppSettings} />}
         {tab === "vouchers" && (isAdmin || user.role === "GARAGE_MANAGER") && <VouchersView user={user} isAdmin={isAdmin} />}
         {tab === "revenue" && isAdmin && <RevenueDashboard user={user} />}
         {tab === "garages" && (isAdmin || isSuperAdmin) && <GaragesView currentUser={user} />}
