@@ -2313,6 +2313,7 @@ function PrintableTicketList({ title, dateLabel, garageLabel, tickets, showGarag
 
 function DownloadTicketListButton({ title, dateLabel, garageLabel, tickets, showGarageColumn, logoUrl, companyName }) {
   const [printing, setPrinting] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   function handlePrint() {
     setPrinting(true);
@@ -2322,11 +2323,123 @@ function DownloadTicketListButton({ title, dateLabel, garageLabel, tickets, show
     }, 150);
   }
 
+  async function handleExcel() {
+    setExporting(true);
+    try {
+      const XLSX = await import("xlsx");
+      const appName = companyName || "Integral Revenue";
+      const METHOD_LABELS = {
+        CASH: "Cash", CREDIT_CARD: "Credit Card", COUPON: "Coupon",
+        CHARGE_BACK: "Charge Back", NC: "N/C", LOANER: "Loaner",
+      };
+      const ZERO_FEE = new Set(["NC", "LOANER"]);
+
+      // ── Summary sheet ──────────────────────────────────────────
+      const summaryRows = [
+        [appName + " — " + title],
+        [],
+        ["Date Range:", dateLabel],
+        garageLabel ? ["Garage:", garageLabel] : null,
+        ["Total Tickets:", tickets.length],
+        ["Generated:", new Date().toLocaleString()],
+        [],
+        ["TOTALS BY CATEGORY"],
+        ["Category", "Amount", "Ticket Count"],
+      ].filter(Boolean);
+
+      // Count and total per method
+      const totals = {};
+      const counts = {};
+      let grandTotal = 0;
+      tickets.forEach((t) => {
+        const key = t.paymentMethod || "OTHER";
+        counts[key] = (counts[key] || 0) + 1;
+        if (!ZERO_FEE.has(key) && t.status === "COMPLETED") {
+          totals[key] = (totals[key] || 0) + (t.feeAmount || 0);
+          grandTotal += t.feeAmount || 0;
+        } else if (ZERO_FEE.has(key)) {
+          totals[key] = 0;
+        }
+      });
+
+      Object.entries(totals).forEach(([method, amount]) => {
+        summaryRows.push([
+          METHOD_LABELS[method] || method,
+          ZERO_FEE.has(method) ? "No charge" : amount,
+          counts[method],
+        ]);
+      });
+
+      summaryRows.push([]);
+      summaryRows.push(["Running Total:", grandTotal]);
+
+      // ── Detail sheet ───────────────────────────────────────────
+      const headers = [
+        "Ticket #", ...(showGarageColumn ? ["Garage"] : []),
+        "Unit", "Vehicle", "Plate",
+        "Check-In", "Check-Out", "Duration",
+        "Status", "Payment", "Amount",
+      ];
+
+      const detailRows = [headers];
+      tickets.forEach((t) => {
+        const dur = t.durationMinutes
+          ? `${Math.floor(t.durationMinutes / 60)}h ${t.durationMinutes % 60}m`
+          : "";
+        detailRows.push([
+          "#" + t.ticketNumber,
+          ...(showGarageColumn ? [t.garage?.name || ""] : []),
+          t.apartmentNumber || "",
+          [t.vehicleColor, t.vehicleMake, t.vehicleModel].filter(Boolean).join(" "),
+          t.licensePlate || "",
+          t.checkInTime ? new Date(t.checkInTime).toLocaleString() : "",
+          t.checkOutTime ? new Date(t.checkOutTime).toLocaleString() : "",
+          dur,
+          t.status || "",
+          METHOD_LABELS[t.paymentMethod] || t.paymentMethod || "",
+          t.status === "COMPLETED"
+            ? (ZERO_FEE.has(t.paymentMethod) ? "No charge" : (t.feeAmount || 0))
+            : "",
+        ]);
+      });
+
+      // ── Build workbook ────────────────────────────────────────
+      const wb = XLSX.utils.book_new();
+
+      const wsSummary = XLSX.utils.aoa_to_sheet(summaryRows);
+      wsSummary["!cols"] = [{ wch: 20 }, { wch: 16 }, { wch: 14 }];
+      XLSX.utils.book_append_sheet(wb, wsSummary, "Summary");
+
+      const wsDetail = XLSX.utils.aoa_to_sheet(detailRows);
+      wsDetail["!cols"] = headers.map((h) =>
+        h === "Vehicle" ? { wch: 28 } : h.includes("Check") ? { wch: 20 } : { wch: 14 }
+      );
+      XLSX.utils.book_append_sheet(wb, wsDetail, "Tickets");
+
+      // ── Download ──────────────────────────────────────────────
+      const fileName = `${appName} - ${title} - ${new Date().toLocaleDateString()}.xlsx`
+        .replace(/[/\\?%*:|"<>]/g, "-");
+      XLSX.writeFile(wb, fileName);
+    } catch (err) {
+      console.error("Excel export failed:", err);
+      alert("Excel export failed. Try again.");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <>
-      <button className="btn btn-ghost" onClick={handlePrint} disabled={printing || !tickets || tickets.length === 0}>
-        {printing ? "Preparing..." : "⬇ Download / Print Report"}
-      </button>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <button className="btn btn-ghost" onClick={handlePrint} disabled={printing || !tickets || tickets.length === 0}
+          style={{ flex: 1 }}>
+          {printing ? "Preparing..." : "🖨️ Print / PDF Report"}
+        </button>
+        <button className="btn btn-ghost" onClick={handleExcel} disabled={exporting || !tickets || tickets.length === 0}
+          style={{ flex: 1 }}>
+          {exporting ? "Exporting..." : "📊 Download Excel"}
+        </button>
+      </div>
       <PrintableTicketList title={title} dateLabel={dateLabel} garageLabel={garageLabel} tickets={tickets} showGarageColumn={showGarageColumn} logoUrl={logoUrl} companyName={companyName} />
     </>
   );
