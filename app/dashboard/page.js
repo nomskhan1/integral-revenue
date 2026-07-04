@@ -92,7 +92,7 @@ export default function Dashboard() {
         <div className="brand">
           <img src="/logo.png" alt="" className="logo" />
           <div>
-            <span className="mark">Integral</span>
+            <span className="mark">Integral Revenue</span>
             <div style={{ fontSize: 10, color: "var(--slate2)", lineHeight: 1.2 }}>
               {user.garage?.name
                 ? user.garage.name
