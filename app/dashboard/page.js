@@ -200,8 +200,8 @@ export default function Dashboard() {
         )}
         {tab === "employees" && user.role === "GARAGE_MANAGER" && <UsersView currentUser={user} />}
         {tab === "garage-reports" && user.role === "GARAGE_MANAGER" && <GarageReportsView user={user} />}
-        {tab === "ticket-history" && (user.role === "GARAGE_MANAGER" || isAdmin) && <TicketHistoryView user={user} showGarageFilter={isAdmin} />}
-        {tab === "daily-closed" && (user.role === "GARAGE_MANAGER" || isAdmin) && <DailyClosedView user={user} showGarageFilter={isAdmin} />}
+        {tab === "ticket-history" && (user.role === "GARAGE_MANAGER" || isAdmin) && <TicketHistoryView user={user} showGarageFilter={isAdmin} logoUrl={appSettings.logoUrl} companyName={appSettings.companyName} />}
+        {tab === "daily-closed" && (user.role === "GARAGE_MANAGER" || isAdmin) && <DailyClosedView user={user} showGarageFilter={isAdmin} logoUrl={appSettings.logoUrl} companyName={appSettings.companyName} />}
         {tab === "branding" && isAdmin && <BrandingView settings={appSettings} onSaved={setAppSettings} />}
         {tab === "vouchers" && (isAdmin || user.role === "GARAGE_MANAGER") && <VouchersView user={user} isAdmin={isAdmin} />}
         {tab === "revenue" && isAdmin && <RevenueDashboard user={user} />}
@@ -1230,7 +1230,7 @@ function ActiveTicketsView() {
 }
 
 // ---------------- TICKET HISTORY (Garage Manager / Admin) ----------------
-function TicketHistoryView({ user, showGarageFilter }) {
+function TicketHistoryView({ user, showGarageFilter, logoUrl, companyName }) {
   const [tickets, setTickets] = useState([]);
   const [garages, setGarages] = useState([]);
   const [error, setError] = useState("");
@@ -1527,6 +1527,8 @@ function TicketHistoryView({ user, showGarageFilter }) {
         garageLabel={showGarageFilter ? (garages.find(g => g.id === garageFilter)?.name || "All garages") : undefined}
         tickets={filteredTickets}
         showGarageColumn={showGarageFilter}
+        logoUrl={logoUrl}
+        companyName={companyName}
       />
 
       {filteredTickets.length === 0 ? (
@@ -1569,7 +1571,7 @@ function TicketHistoryView({ user, showGarageFilter }) {
 }
 
 // ---------------- DAILY CLOSED TICKETS (Garage Manager / Admin) ----------------
-function DailyClosedView({ user, showGarageFilter }) {
+function DailyClosedView({ user, showGarageFilter, logoUrl, companyName }) {
   const [tickets, setTickets] = useState([]);
   const [garages, setGarages] = useState([]);
   const [error, setError] = useState("");
@@ -1793,6 +1795,8 @@ function DailyClosedView({ user, showGarageFilter }) {
         garageLabel={showGarageFilter ? (garages.find(g => g.id === garageFilter)?.name || "All garages") : undefined}
         tickets={filteredTickets}
         showGarageColumn={showGarageFilter}
+        logoUrl={logoUrl}
+        companyName={companyName}
       />
 
       {filteredTickets.length === 0 && tickets.length > 0 ? (
@@ -2124,7 +2128,7 @@ function PrintableShiftReport({ report }) {
   return (
     <div className="print-report">
       <div className="pr-header">
-        <div className="pr-title">Integral Revenue — Shift Report</div>
+        <div className="pr-title">{report.garage?.name || "Integral Revenue"} — Shift Report</div>
         <div className="pr-meta">
           <span><b>Garage:</b> {report.garage?.name}</span>
           <span><b>Employee:</b> {report.employee?.name}</span>
@@ -2197,7 +2201,7 @@ function PrintableShiftReport({ report }) {
       )}
 
       <div className="pr-footer">
-        <span>Integral Revenue Management</span>
+        <span>{report.garage?.name || "Integral Revenue"}</span>
         <span>Printed {new Date().toLocaleString()}</span>
         {report.submittedAt && <span>Submitted {new Date(report.submittedAt).toLocaleString()}</span>}
       </div>
@@ -2205,8 +2209,9 @@ function PrintableShiftReport({ report }) {
   );
 }
 
-function PrintableTicketList({ title, dateLabel, garageLabel, tickets, showGarageColumn }) {
+function PrintableTicketList({ title, dateLabel, garageLabel, tickets, showGarageColumn, logoUrl, companyName }) {
   if (!tickets) return null;
+  const appName = companyName || "Integral Revenue";
   const METHOD_LABELS = {
     CASH: "Cash", CREDIT_CARD: "Credit Card", COUPON: "Coupon",
     CHARGE_BACK: "Charge Back", NC: "N/C", LOANER: "Loaner",
@@ -2228,11 +2233,18 @@ function PrintableTicketList({ title, dateLabel, garageLabel, tickets, showGarag
   return (
     <div className="print-report">
       <div className="pr-header">
-        <div className="pr-title">Integral Revenue — {title}</div>
-        <div className="pr-meta">
-          {garageLabel && <span><b>Garage:</b> {garageLabel}</span>}
-          <span><b>Date range:</b> {dateLabel}</span>
-          <span><b>Total tickets:</b> {tickets.length}</span>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+          <div>
+            <div className="pr-title">{appName} — {title}</div>
+            <div className="pr-meta">
+              {garageLabel && <span><b>Garage:</b> {garageLabel}</span>}
+              <span><b>Date range:</b> {dateLabel}</span>
+              <span><b>Total tickets:</b> {tickets.length}</span>
+            </div>
+          </div>
+          {logoUrl && (
+            <img src={logoUrl} alt="Logo" style={{ height: 56, maxWidth: 160, objectFit: "contain" }} />
+          )}
         </div>
       </div>
 
@@ -2286,14 +2298,14 @@ function PrintableTicketList({ title, dateLabel, garageLabel, tickets, showGarag
       </div>
 
       <div className="pr-footer">
-        <span>Integral Revenue Management</span>
+        <span>{appName}</span>
         <span>Printed {new Date().toLocaleString()}</span>
       </div>
     </div>
   );
 }
 
-function DownloadTicketListButton({ title, dateLabel, garageLabel, tickets, showGarageColumn }) {
+function DownloadTicketListButton({ title, dateLabel, garageLabel, tickets, showGarageColumn, logoUrl, companyName }) {
   const [printing, setPrinting] = useState(false);
 
   function handlePrint() {
@@ -2309,7 +2321,7 @@ function DownloadTicketListButton({ title, dateLabel, garageLabel, tickets, show
       <button className="btn btn-ghost" onClick={handlePrint} disabled={printing || !tickets || tickets.length === 0}>
         {printing ? "Preparing..." : "⬇ Download / Print Report"}
       </button>
-      <PrintableTicketList title={title} dateLabel={dateLabel} garageLabel={garageLabel} tickets={tickets} showGarageColumn={showGarageColumn} />
+      <PrintableTicketList title={title} dateLabel={dateLabel} garageLabel={garageLabel} tickets={tickets} showGarageColumn={showGarageColumn} logoUrl={logoUrl} companyName={companyName} />
     </>
   );
 }
