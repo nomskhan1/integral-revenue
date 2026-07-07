@@ -1,6 +1,6 @@
 const prisma = require("../../../../lib/db");
 const ExcelJS = require("exceljs");
-const PDFDocument = require("pdfkit");
+const PDFDocument = require("pdfkit").default || require("pdfkit");
 const { Resend } = require("resend");
 
 const PAYMENT_METHODS = [
