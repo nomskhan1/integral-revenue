@@ -1,6 +1,6 @@
 const prisma = require("../../../../lib/db");
 const ExcelJS = require("exceljs");
-const PDFDocument = require("pdfkit").default || require("pdfkit");
+const { PDFDocument, StandardFonts, rgb } = require("pdf-lib");
 const { Resend } = require("resend");
 
 const PAYMENT_METHODS = [
@@ -138,53 +138,74 @@ async function buildExcel(dateStr, summary, tickets) {
   return workbook.xlsx.writeBuffer();
 }
 
-function buildPdf(dateStr, summary, tickets) {
-  return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ margin: 40, size: "letter" });
-    const chunks = [];
-    doc.on("data", (c) => chunks.push(c));
-    doc.on("end", () => resolve(Buffer.concat(chunks)));
-    doc.on("error", reject);
+async function buildPdf(dateStr, summary, tickets) {
+  const pdfDoc = await PDFDocument.create();
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
-    doc.fontSize(18).text(`Daily revenue backup — ${dateStr}`, { align: "left" });
-    doc.moveDown(1);
+  const pageWidth = 612; // US Letter, points
+  const pageHeight = 792;
+  const marginX = 40;
+  let page = pdfDoc.addPage([pageWidth, pageHeight]);
+  let y = pageHeight - 50;
 
-    doc.fontSize(13).text("Summary by garage", { underline: true });
-    doc.moveDown(0.5);
-    summary.forEach((s) => {
-      doc.fontSize(11).text(`${s.garage.name} — ${s.reportCount} shift report(s)`, { continued: false });
-      const line = PAYMENT_METHODS.map((m) => `${m.label}: ${money(s.totals[m.key])}`).join("   ");
-      doc.fontSize(9).fillColor("#444").text(line);
-      doc
-        .fontSize(10)
-        .fillColor("#000")
-        .text(`Gross: ${money(s.totals.grossTotal)}    Adjustments: ${money(s.totals.adjustments)}    Net: ${money(s.totals.netTotal)}`);
-      doc.moveDown(0.7);
-    });
+  function ensureRoom(minY) {
+    if (y < minY) {
+      page = pdfDoc.addPage([pageWidth, pageHeight]);
+      y = pageHeight - 50;
+    }
+  }
 
-    const grandGross = summary.reduce((a, s) => a + s.totals.grossTotal, 0);
-    const grandNet = summary.reduce((a, s) => a + s.totals.netTotal, 0);
-    doc.moveDown(0.5);
-    doc.fontSize(12).text(`ALL GARAGES — Gross: ${money(grandGross)}    Net: ${money(grandNet)}`, { underline: true });
+  function writeLine(text, { size = 10, bold = false, color = rgb(0, 0, 0), gap = 14 } = {}) {
+    ensureRoom(50);
+    page.drawText(text, { x: marginX, y, size, font: bold ? boldFont : font, color });
+    y -= gap;
+  }
 
-    doc.addPage();
-    doc.fontSize(13).text("Full ticket detail", { underline: true });
-    doc.moveDown(0.5);
-    doc.fontSize(9);
+  writeLine(`Daily revenue backup — ${dateStr}`, { size: 18, bold: true, gap: 28 });
+  writeLine("Summary by garage", { size: 13, bold: true, gap: 20 });
+
+  summary.forEach((s) => {
+    writeLine(`${s.garage.name} — ${s.reportCount} shift report(s)`, { size: 11, bold: true, gap: 14 });
+    const line = PAYMENT_METHODS.map((m) => `${m.label}: ${money(s.totals[m.key])}`).join("   ");
+    writeLine(line, { size: 8, color: rgb(0.27, 0.27, 0.27), gap: 12 });
+    writeLine(
+      `Gross: ${money(s.totals.grossTotal)}    Adjustments: ${money(s.totals.adjustments)}    Net: ${money(
+        s.totals.netTotal
+      )}`,
+      { size: 9, gap: 18 }
+    );
+  });
+
+  const grandGross = summary.reduce((a, s) => a + s.totals.grossTotal, 0);
+  const grandNet = summary.reduce((a, s) => a + s.totals.netTotal, 0);
+  writeLine(`ALL GARAGES — Gross: ${money(grandGross)}    Net: ${money(grandNet)}`, {
+    size: 12,
+    bold: true,
+    gap: 20,
+  });
+
+  // Full detail on a fresh page.
+  page = pdfDoc.addPage([pageWidth, pageHeight]);
+  y = pageHeight - 50;
+  writeLine("Full ticket detail", { size: 13, bold: true, gap: 20 });
+
+  if (tickets.length === 0) {
+    writeLine("No completed tickets today.", { size: 9, color: rgb(0.4, 0.4, 0.4) });
+  } else {
     tickets.forEach((t) => {
       const checkOut = t.checkOutTime ? new Date(t.checkOutTime).toLocaleString("en-US") : "—";
-      doc.text(
-        `${t.garage?.name || ""} · #${t.ticketNumber} · out ${checkOut} · ${t.durationMinutes || "?"}min · ${money(
-          t.feeAmount
-        )} · ${t.paymentMethod || "—"} · in: ${t.checkedInBy?.name || "—"} out: ${t.checkedOutBy?.name || "—"}`
-      );
+      const line = `${t.garage?.name || ""} · #${t.ticketNumber} · out ${checkOut} · ${
+        t.durationMinutes || "?"
+      }min · ${money(t.feeAmount)} · ${t.paymentMethod || "—"} · in: ${t.checkedInBy?.name || "—"} out: ${
+        t.checkedOutBy?.name || "—"
+      }`;
+      writeLine(line, { size: 8, gap: 12 });
     });
-    if (tickets.length === 0) {
-      doc.fillColor("#666").text("No completed tickets today.");
-    }
+  }
 
-    doc.end();
-  });
+  const pdfBytes = await pdfDoc.save();
+  return Buffer.from(pdfBytes);
 }
 
 async function GET(req) {
