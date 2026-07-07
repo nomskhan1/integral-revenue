@@ -440,7 +440,7 @@ function CheckInView() {
             {new Date(ticket.checkInTime).toLocaleString()}
           </div>
         </div>
-        <button className="btn btn-primary" onClick={() => window.print()}>
+        <button className="btn btn-primary" onClick={() => printTicketInPopup(ticket)}>
           Print 2 ticket copies
         </button>
 
@@ -1094,23 +1094,36 @@ function CheckOutView() {
 }
 
 // ---------------- ACTIVE TICKETS ----------------
-async function printTicketInPopup(ticket) {
-  // Open the window FIRST, synchronously, before any await — mobile
-  // browsers/WebViews only treat window.open() as a legitimate response to
-  // a tap if nothing asynchronous happens beforehand. If the QR fetch below
-  // ran first, the browser silently blocks this popup by the time we get
-  // here, and it falls through to printing the underlying (empty) page —
-  // which is exactly the "blank preview, no print button" bug.
-  const w = window.open("", "_blank", "width=400,height=800");
-  if (!w) {
-    alert("Please allow pop-ups for this site, then try Reprint again.");
-    return;
+// Prints via a hidden iframe on the same page, rather than window.open().
+// window.open() proved unreliable on some Android browsers/WebViews — the
+// popup can get detached from this page's JS after an await, leaving it
+// stuck showing whatever placeholder was written first. An iframe stays in
+// this page's own context the whole time, so it doesn't have that problem.
+function printHtmlViaIframe(html) {
+  let iframe = document.getElementById("__ir_print_iframe");
+  if (!iframe) {
+    iframe = document.createElement("iframe");
+    iframe.id = "__ir_print_iframe";
+    iframe.style.position = "fixed";
+    iframe.style.right = "0";
+    iframe.style.bottom = "0";
+    iframe.style.width = "0";
+    iframe.style.height = "0";
+    iframe.style.border = "0";
+    document.body.appendChild(iframe);
   }
-  w.document.write(
-    "<!DOCTYPE html><html><body style='font-family:sans-serif;padding:20px;color:#666;'>Preparing ticket…</body></html>"
-  );
+  const doc = iframe.contentWindow.document;
+  doc.open();
+  doc.write(html);
+  doc.close();
+  iframe.onload = () => {
+    iframe.contentWindow.focus();
+    iframe.contentWindow.print();
+  };
+}
 
-  // Generate QR code server-side so it works reliably in the popup.
+async function printTicketInPopup(ticket) {
+  // Generate QR code server-side so it works reliably in the print output.
   let qrSrc = "";
   const qrToken = ticket.qrToken || ticket.ticketNumber;
   try {
@@ -1141,8 +1154,7 @@ async function printTicketInPopup(ticket) {
     `;
   }
 
-  w.document.open();
-  w.document.write(`
+  const html = `
     <!DOCTYPE html><html><head>
     <title>Ticket #${ticket.ticketNumber}</title>
     <style>
@@ -1153,16 +1165,9 @@ async function printTicketInPopup(ticket) {
       ${copy("CUSTOMER COPY")}
       <div style="text-align:center;border-top:2px dashed #000;padding:4mm 0;font-size:12px;letter-spacing:0.1em;">✂ CUT HERE</div>
       ${copy("GARAGE COPY")}
-      <script>
-        window.onload = function() {
-          window.print();
-          window.onafterprint = function() { window.close(); };
-          setTimeout(function() { window.close(); }, 5000);
-        };
-      </script>
     </body></html>
-  `);
-  w.document.close();
+  `;
+  printHtmlViaIframe(html);
 }
 
 function ReprintTicket({ ticket }) { return null; }
@@ -2991,16 +2996,6 @@ function RevenueDashboard({ user }) {
 
 // ---------------- GARAGES (Super Admin / Admin) ----------------
 async function printVouchersInPopup(vouchers) {
-  // Open the window FIRST, synchronously — see printTicketInPopup for why.
-  const w = window.open("", "_blank", "width=820,height=900");
-  if (!w) {
-    alert("Please allow pop-ups for this site, then try again.");
-    return;
-  }
-  w.document.write(
-    "<!DOCTYPE html><html><body style='font-family:sans-serif;padding:20px;color:#666;'>Preparing vouchers…</body></html>"
-  );
-
   // Generate all QR codes server-side first (same approach as ticket reprint)
   const withQr = await Promise.all(
     vouchers.map(async (v) => {
@@ -3035,8 +3030,7 @@ async function printVouchersInPopup(vouchers) {
     </div>
   `).join("");
 
-  w.document.open();
-  w.document.write(`<!DOCTYPE html><html><head>
+  const html = `<!DOCTYPE html><html><head>
     <title>N/C Vouchers</title>
     <style>
       * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -3047,11 +3041,8 @@ async function printVouchersInPopup(vouchers) {
     </style>
   </head><body>
     <div>${rows}</div>
-    <script>
-      window.onload = function() { window.print(); };
-    </script>
-  </body></html>`);
-  w.document.close();
+  </body></html>`;
+  printHtmlViaIframe(html);
 }
 
 function VouchersView({ user, isAdmin }) {
