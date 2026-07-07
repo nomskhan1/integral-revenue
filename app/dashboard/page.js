@@ -1095,6 +1095,21 @@ function CheckOutView() {
 
 // ---------------- ACTIVE TICKETS ----------------
 async function printTicketInPopup(ticket) {
+  // Open the window FIRST, synchronously, before any await — mobile
+  // browsers/WebViews only treat window.open() as a legitimate response to
+  // a tap if nothing asynchronous happens beforehand. If the QR fetch below
+  // ran first, the browser silently blocks this popup by the time we get
+  // here, and it falls through to printing the underlying (empty) page —
+  // which is exactly the "blank preview, no print button" bug.
+  const w = window.open("", "_blank", "width=400,height=800");
+  if (!w) {
+    alert("Please allow pop-ups for this site, then try Reprint again.");
+    return;
+  }
+  w.document.write(
+    "<!DOCTYPE html><html><body style='font-family:sans-serif;padding:20px;color:#666;'>Preparing ticket…</body></html>"
+  );
+
   // Generate QR code server-side so it works reliably in the popup.
   let qrSrc = "";
   const qrToken = ticket.qrToken || ticket.ticketNumber;
@@ -1103,9 +1118,6 @@ async function printTicketInPopup(ticket) {
     const data = await res.json();
     if (data.dataUrl) qrSrc = data.dataUrl;
   } catch {}
-
-  const w = window.open("", "_blank", "width=400,height=800");
-  if (!w) { window.print(); return; }
 
   const checkIn = new Date(ticket.checkInTime).toLocaleString();
   const veh = [ticket.vehicleColor, ticket.vehicleMake, ticket.vehicleModel].filter(Boolean).join(" ");
@@ -1129,6 +1141,7 @@ async function printTicketInPopup(ticket) {
     `;
   }
 
+  w.document.open();
   w.document.write(`
     <!DOCTYPE html><html><head>
     <title>Ticket #${ticket.ticketNumber}</title>
@@ -2978,6 +2991,16 @@ function RevenueDashboard({ user }) {
 
 // ---------------- GARAGES (Super Admin / Admin) ----------------
 async function printVouchersInPopup(vouchers) {
+  // Open the window FIRST, synchronously — see printTicketInPopup for why.
+  const w = window.open("", "_blank", "width=820,height=900");
+  if (!w) {
+    alert("Please allow pop-ups for this site, then try again.");
+    return;
+  }
+  w.document.write(
+    "<!DOCTYPE html><html><body style='font-family:sans-serif;padding:20px;color:#666;'>Preparing vouchers…</body></html>"
+  );
+
   // Generate all QR codes server-side first (same approach as ticket reprint)
   const withQr = await Promise.all(
     vouchers.map(async (v) => {
@@ -2990,9 +3013,6 @@ async function printVouchersInPopup(vouchers) {
       }
     })
   );
-
-  const w = window.open("", "_blank", "width=820,height=900");
-  if (!w) return;
 
   const rows = withQr.map((v, i) => `
     <div style="width:80mm;padding:4mm 4mm 8mm 4mm;text-align:center;font-family:'Courier New',monospace;${i === 0 ? "margin-top:-12mm;" : ""}${i < withQr.length - 1 ? "page-break-after:always;" : ""}">
@@ -3015,6 +3035,7 @@ async function printVouchersInPopup(vouchers) {
     </div>
   `).join("");
 
+  w.document.open();
   w.document.write(`<!DOCTYPE html><html><head>
     <title>N/C Vouchers</title>
     <style>
