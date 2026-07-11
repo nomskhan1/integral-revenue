@@ -29,10 +29,33 @@ model User {
   garageId String?
   garage   Garage? @relation(fields: [garageId], references: [id])
 
+  // Email address used for automated daily reports. Separate from username
+  // since usernames aren't necessarily email addresses in this system.
+  // Only populated for Admin accounts that want automated reports.
+  reportEmail String?
+
+  // Which garages this Admin is responsible for. Many-to-many via
+  // AdminGarage. Only used for ADMIN role — other roles use garageId above.
+  adminGarages AdminGarage[]
+
   shiftReports   ShiftReport[] @relation("SubmittedBy")
   ncVouchers     NCVoucher[]
   checkedInTickets  Ticket[]   @relation("CheckedInBy")
   checkedOutTickets Ticket[]   @relation("CheckedOutBy")
+}
+
+// Junction table: which garages each Admin is responsible for.
+// Lets one Admin manage multiple garages, and lets each garage have
+// its report go to only the Admin(s) assigned to it.
+model AdminGarage {
+  id      String @id @default(cuid())
+  adminId String
+  admin   User   @relation(fields: [adminId], references: [id])
+  garageId String
+  garage   Garage @relation(fields: [garageId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@unique([adminId, garageId])
 }
 
 model Garage {
@@ -45,6 +68,7 @@ model Garage {
   createdAt  DateTime @default(now())
 
   users          User[]
+  adminGarages   AdminGarage[]
   shiftReports   ShiftReport[]
   tickets        Ticket[]
   rateTiers      RateTier[]

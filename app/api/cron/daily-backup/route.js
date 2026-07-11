@@ -38,6 +38,21 @@ function todayDateString() {
 async function fetchData(dateStr) {
   const garages = await prisma.garage.findMany({ orderBy: { name: "asc" } });
 
+  // Load all admins who have garage assignments AND a report email set —
+  // those are the ones who should receive per-garage reports.
+  const admins = await prisma.user.findMany({
+    where: {
+      role: "ADMIN",
+      reportEmail: { not: null },
+      adminGarages: { some: {} },
+    },
+    include: {
+      adminGarages: {
+        include: { garage: { select: { id: true, name: true } } },
+      },
+    },
+  });
+
   const reports = await prisma.shiftReport.findMany({
     where: { shiftDate: dateStr },
     include: { garage: true, employee: { select: { name: true } } },
@@ -45,9 +60,6 @@ async function fetchData(dateStr) {
   });
 
   // Tickets checked out today, used for the full-detail sheet/page.
-  // -06:00 is US Central Standard Time. During Central Daylight Time
-  // (spring–fall) this is technically off by an hour at the day's edges —
-  // fine for a same-day backup, but flag it if you want exact DST handling.
   const dayStart = new Date(`${dateStr}T00:00:00-06:00`);
   const dayEnd = new Date(`${dateStr}T23:59:59-06:00`);
   const tickets = await prisma.ticket.findMany({
@@ -63,7 +75,7 @@ async function fetchData(dateStr) {
     orderBy: [{ garageId: "asc" }, { checkOutTime: "asc" }],
   });
 
-  return { garages, reports, tickets };
+  return { garages, admins, reports, tickets };
 }
 
 function buildSummary(garages, reports) {
@@ -209,54 +221,97 @@ async function buildPdf(dateStr, summary, tickets) {
 }
 
 async function GET(req) {
-  // Vercel Cron sends this header automatically when a CRON_SECRET is
-  // configured in Vercel's project settings — protects this endpoint from
-  // being triggered by randoms hitting the URL.
   const authHeader = req.headers.get("authorization");
   if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return new Response(JSON.stringify({ error: "Unauthorized." }), { status: 401 });
   }
 
   const dateStr = todayDateString();
-  const { garages, reports, tickets } = await fetchData(dateStr);
-  const summary = buildSummary(garages, reports);
-
-  const [excelBuffer, pdfBuffer] = await Promise.all([
-    buildExcel(dateStr, summary, tickets),
-    buildPdf(dateStr, summary, tickets),
-  ]);
-
+  const { garages, admins, reports, tickets } = await fetchData(dateStr);
   const resend = new Resend(process.env.RESEND_API_KEY);
+  const from = process.env.BACKUP_EMAIL_FROM || "Integral Revenue <backups@integralrevenue.app>";
+  const results = [];
+
+  // ── 1. Per-admin emails (scoped to their assigned garages) ──────────────
+  for (const admin of admins) {
+    const adminGarageIds = new Set(admin.adminGarages.map((ag) => ag.garageId));
+    const adminGarages = garages.filter((g) => adminGarageIds.has(g.id));
+    const adminReports = reports.filter((r) => adminGarageIds.has(r.garageId));
+    const adminTickets = tickets.filter((t) => adminGarageIds.has(t.garageId));
+
+    if (adminGarages.length === 0) continue;
+
+    const summary = buildSummary(adminGarages, adminReports);
+    const grandGross = summary.reduce((a, s) => a + s.totals.grossTotal, 0);
+
+    const [excelBuffer, pdfBuffer] = await Promise.all([
+      buildExcel(dateStr, summary, adminTickets),
+      buildPdf(dateStr, summary, adminTickets),
+    ]);
+
+    const garageNames = adminGarages.map((g) => g.name).join(", ");
+    const result = await resend.emails.send({
+      from,
+      to: admin.reportEmail,
+      subject: `Daily revenue report — ${dateStr} (${garageNames})`,
+      text: `Hi ${admin.name},\n\nAttached is today's revenue report for your garage(s): ${garageNames}.\n\nDate: ${dateStr}\nGross total: ${money(grandGross)}\n\nThis is an automated report from Integral Revenue.`,
+      attachments: [
+        {
+          filename: `revenue-report-${dateStr}.xlsx`,
+          content: excelBuffer.toString("base64"),
+        },
+        {
+          filename: `revenue-report-${dateStr}.pdf`,
+          content: pdfBuffer.toString("base64"),
+        },
+      ],
+    });
+
+    results.push({
+      admin: admin.name,
+      email: admin.reportEmail,
+      garages: adminGarages.map((g) => g.name),
+      error: result.error?.message || null,
+    });
+  }
+
+  // ── 2. Combined super-admin report (all garages) ────────────────────────
   const toAddress = process.env.BACKUP_EMAIL_TO;
+  if (toAddress) {
+    const summary = buildSummary(garages, reports);
+    const grandGross = summary.reduce((a, s) => a + s.totals.grossTotal, 0);
 
-  if (!toAddress) {
-    return new Response(JSON.stringify({ error: "BACKUP_EMAIL_TO is not set." }), { status: 500 });
+    const [excelBuffer, pdfBuffer] = await Promise.all([
+      buildExcel(dateStr, summary, tickets),
+      buildPdf(dateStr, summary, tickets),
+    ]);
+
+    const result = await resend.emails.send({
+      from,
+      to: toAddress,
+      subject: `Daily revenue backup — ${dateStr} (${money(grandGross)} across ${garages.length} garages)`,
+      text: `Attached: today's revenue summary and full ticket detail, in both Excel and PDF.\n\nDate: ${dateStr}\nGarages: ${garages.length}\nGrand total (gross): ${money(grandGross)}`,
+      attachments: [
+        {
+          filename: `revenue-backup-${dateStr}.xlsx`,
+          content: excelBuffer.toString("base64"),
+        },
+        {
+          filename: `revenue-backup-${dateStr}.pdf`,
+          content: pdfBuffer.toString("base64"),
+        },
+      ],
+    });
+
+    results.push({
+      admin: "SUPER_ADMIN",
+      email: toAddress,
+      garages: garages.map((g) => g.name),
+      error: result.error?.message || null,
+    });
   }
 
-  const grandGross = summary.reduce((a, s) => a + s.totals.grossTotal, 0);
-
-  const result = await resend.emails.send({
-    from: process.env.BACKUP_EMAIL_FROM || "Integral Revenue <backups@integralrevenue.app>",
-    to: toAddress,
-    subject: `Daily revenue backup — ${dateStr} (${money(grandGross)} across ${garages.length} garages)`,
-    text: `Attached: today's revenue summary and full ticket detail, in both Excel and PDF.\n\nDate: ${dateStr}\nGarages: ${garages.length}\nGrand total (gross): ${money(grandGross)}`,
-    attachments: [
-      {
-        filename: `revenue-backup-${dateStr}.xlsx`,
-        content: excelBuffer.toString("base64"),
-      },
-      {
-        filename: `revenue-backup-${dateStr}.pdf`,
-        content: pdfBuffer.toString("base64"),
-      },
-    ],
-  });
-
-  if (result.error) {
-    return new Response(JSON.stringify({ error: result.error.message }), { status: 500 });
-  }
-
-  return new Response(JSON.stringify({ ok: true, date: dateStr, emailId: result.data?.id }), { status: 200 });
+  return new Response(JSON.stringify({ ok: true, date: dateStr, results }), { status: 200 });
 }
 
 module.exports = { GET };
