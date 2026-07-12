@@ -1,5 +1,5 @@
-const prisma = require("../../../../lib/db");
-const { getSessionFromRequest } = require("../../../../lib/auth");
+const prisma = require("../../../lib/db");
+const { getSessionFromRequest } = require("../../../lib/auth");
 
 // GET: list all admins with their current garage assignments and report email.
 // Super Admin only.
