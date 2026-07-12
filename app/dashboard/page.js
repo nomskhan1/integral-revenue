@@ -612,6 +612,36 @@ function CheckOutView() {
   const [completing, setCompleting] = useState(false);
   const [completed, setCompleted] = useState(null);
   const [enabledMethods, setEnabledMethods] = useState([]);
+  const [currentUserId, setCurrentUserId] = useState(null);
+
+  // Read Square callback params from URL on mount — Square redirects back
+  // here after a payment with ?square_success=1&ticket_number=...&amount=...
+  // or ?square_error=... in case of cancellation or failure.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const squareSuccess = params.get("square_success");
+    const squareError = params.get("square_error");
+    const ticketNumber = params.get("ticket_number");
+    const amount = params.get("amount");
+
+    if (squareSuccess === "1") {
+      setCompleted({
+        ticketNumber,
+        feeAmount: parseFloat(amount || "0"),
+        paymentMethod: "CREDIT_CARD",
+        durationMinutes: null, // not available in URL, that's ok
+        _squarePaid: true,
+      });
+      // Clean URL without reloading
+      window.history.replaceState({}, "", "/dashboard?tab=checkout");
+    } else if (squareError) {
+      const msg = squareError === "cancelled"
+        ? "Payment was cancelled. You can try again."
+        : `Payment failed (${squareError}). Please try again or use a different method.`;
+      setError(msg);
+      window.history.replaceState({}, "", "/dashboard?tab=checkout");
+    }
+  }, []);
 
   const METHOD_LABELS = {
     CASH: "Cash", CREDIT_CARD: "Credit Card", COUPON: "Coupon",
@@ -622,6 +652,7 @@ function CheckOutView() {
     const meRes = await fetch("/api/auth/me");
     const meData = await meRes.json();
     if (!meData.user?.garageId) return;
+    setCurrentUserId(meData.user.id);
     const res = await fetch(`/api/garages/${meData.user.garageId}/payment-methods`);
     if (res.ok) {
       const methods = await res.json();
@@ -765,6 +796,40 @@ function CheckOutView() {
     return () => closeCamera();
   }, []);
 
+  // Launches Square Point of Sale app with the amount pre-filled.
+  // Square handles the card reader interaction, then redirects back to
+  // /api/square/callback which completes the ticket automatically.
+  function launchSquarePOS() {
+    if (!ticket || !currentUserId) return;
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
+    const callbackUrl = `${appUrl}/api/square/callback`;
+    const amountCents = Math.round((ticket.previewFee || 0) * 100);
+    const clientId = process.env.NEXT_PUBLIC_SQUARE_APP_ID;
+
+    if (!clientId) {
+      setError("Square is not configured yet. Add NEXT_PUBLIC_SQUARE_APP_ID to your environment variables.");
+      return;
+    }
+
+    // Custom data field carries ticketId and employeeId so the callback
+    // can complete checkout without needing a session cookie.
+    const customData = `${ticket.id}|${currentUserId}`;
+
+    const params = new URLSearchParams({
+      client_id: clientId,
+      transaction_id: `ticket-${ticket.ticketNumber}-${Date.now()}`,
+      amount_money: amountCents,
+      currency_code: "USD",
+      callback_url: callbackUrl,
+      data: customData,
+      options: JSON.stringify({ supported_tender_types: ["CREDIT_CARD", "CARD_ON_FILE"] }),
+    });
+
+    // Square POS deep link format
+    const squareUrl = `square-commerce-v1://payment/create?${params.toString()}`;
+    window.location.href = squareUrl;
+  }
+
   async function completeCheckout() {
     setCompleting(true);
     setError("");
@@ -791,11 +856,15 @@ function CheckOutView() {
         <h1 className="title">Ticket #{completed.ticketNumber}</h1>
         <div className="card">
           <div className="totals-grid">
-            <div className="totals-cell"><div className="label">Duration</div><div className="value" style={{ fontSize: 16 }}>{Math.floor(completed.durationMinutes / 60)}h {completed.durationMinutes % 60}m</div></div>
+            {!completed._squarePaid && completed.durationMinutes !== null && (
+              <div className="totals-cell"><div className="label">Duration</div><div className="value" style={{ fontSize: 16 }}>{Math.floor(completed.durationMinutes / 60)}h {completed.durationMinutes % 60}m</div></div>
+            )}
             <div className="totals-cell"><div className="label">Amount charged</div><div className="value">{money(completed.feeAmount)}</div></div>
           </div>
           <p style={{ marginTop: 12, fontSize: 13, color: "var(--slate2)" }}>
-            Paid by {completed.paymentMethod === "CASH" ? "cash" : "credit card"}. This has been added to your shift report automatically.
+            {completed._squarePaid
+              ? "✓ Credit card payment approved via Square. Added to your shift report automatically."
+              : `Paid by ${completed.paymentMethod === "CASH" ? "cash" : "credit card"}. This has been added to your shift report automatically.`}
           </p>
         </div>
         <button className="btn btn-primary" onClick={() => setCompleted(null)}>
@@ -1034,13 +1103,19 @@ function CheckOutView() {
           <input value={paymentNote} onChange={(e) => setPaymentNote(e.target.value)} placeholder="e.g. last 4 digits, terminal reference" />
         </div>
 
-        <button className="btn btn-primary" disabled={completing || !paymentMethod} onClick={completeCheckout}>
-          {completing
-            ? "Processing..."
-            : ZERO_FEE_METHODS.has(paymentMethod)
-            ? "Complete checkout — No charge"
-            : `Complete checkout — ${money(displayedFee)}`}
-        </button>
+        {paymentMethod === "CREDIT_CARD" ? (
+          <button className="btn btn-primary" disabled={completing || !paymentMethod} onClick={launchSquarePOS}>
+            {`Charge card — ${money(displayedFee)}`}
+          </button>
+        ) : (
+          <button className="btn btn-primary" disabled={completing || !paymentMethod} onClick={completeCheckout}>
+            {completing
+              ? "Processing..."
+              : ZERO_FEE_METHODS.has(paymentMethod)
+              ? "Complete checkout — No charge"
+              : `Complete checkout — ${money(displayedFee)}`}
+          </button>
+        )}
         <button className="btn btn-ghost" onClick={() => setTicket(null)} disabled={completing}>
           Cancel
         </button>
