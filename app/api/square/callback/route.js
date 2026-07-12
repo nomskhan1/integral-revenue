@@ -1,5 +1,5 @@
-const prisma = require("../../../../../lib/db");
-const { calculateFee } = require("../../../../../lib/pricing");
+const prisma = require("../../../../lib/db");
+const { calculateFee } = require("../../../../lib/pricing");
 
 const METHOD_TO_FIELD = {
   CASH: "cashRevenue",
