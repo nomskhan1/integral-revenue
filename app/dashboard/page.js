@@ -3897,13 +3897,59 @@ function UsersView({ currentUser }) {
   const [resetValue, setResetValue] = useState("");
   const [resetError, setResetError] = useState("");
 
+  // Garage assignment panel state (Super Admin only)
+  const [assignId, setAssignId] = useState(null);
+  const [assignGarageIds, setAssignGarageIds] = useState([]);
+  const [assignEmail, setAssignEmail] = useState("");
+  const [assignError, setAssignError] = useState("");
+  const [assignSaving, setAssignSaving] = useState(false);
+
   const load = useCallback(async () => {
     const requests = [fetch("/api/users")];
     if (!isGarageManager) requests.push(fetch("/api/garages"));
+    if (isSuperAdmin) requests.push(fetch("/api/admin-garages"));
     const results = await Promise.all(requests);
     if (results[0].ok) setUsers(await results[0].json());
     if (!isGarageManager && results[1]?.ok) setGarages(await results[1].json());
-  }, [isGarageManager]);
+    // Merge admin garage assignments into user list
+    if (isSuperAdmin && results[2]?.ok) {
+      const adminData = await results[2].json();
+      setUsers((prev) => prev.map((u) => {
+        const a = adminData.find((ad) => ad.id === u.id);
+        return a ? { ...u, adminGarages: a.adminGarages, reportEmail: a.reportEmail } : u;
+      }));
+    }
+  }, [isGarageManager, isSuperAdmin]);
+
+  useEffect(() => { load(); }, [load]);
+
+  function openAssign(u) {
+    setAssignId(u.id);
+    setAssignGarageIds((u.adminGarages || []).map((ag) => ag.garageId));
+    setAssignEmail(u.reportEmail || "");
+    setAssignError("");
+  }
+
+  function toggleGarage(garageId) {
+    setAssignGarageIds((prev) =>
+      prev.includes(garageId) ? prev.filter((id) => id !== garageId) : [...prev, garageId]
+    );
+  }
+
+  async function saveAssignment() {
+    setAssignError("");
+    setAssignSaving(true);
+    const res = await fetch("/api/admin-garages", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ adminId: assignId, garageIds: assignGarageIds, reportEmail: assignEmail }),
+    });
+    const data = await res.json();
+    setAssignSaving(false);
+    if (!res.ok) { setAssignError(data.error); return; }
+    setAssignId(null);
+    load();
+  }
 
   useEffect(() => { load(); }, [load]);
 
@@ -3980,10 +4026,24 @@ function UsersView({ currentUser }) {
               <div style={{ fontWeight: 600 }}>{u.name}</div>
               <div style={{ fontSize: 12, color: "var(--slate2)" }}>
                 {u.username}{u.garage ? ` · ${u.garage.name}` : ""}
+                {isSuperAdmin && u.adminGarages?.length > 0 && (
+                  <span> · {u.adminGarages.map((ag) => ag.garage?.name).join(", ")}</span>
+                )}
+                {isSuperAdmin && u.reportEmail && (
+                  <span> · 📧 {u.reportEmail}</span>
+                )}
               </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <span className="role-tag">{u.role.replace("_", " ")}</span>
+              {isSuperAdmin && (
+                <button
+                  onClick={() => assignId === u.id ? setAssignId(null) : openAssign(u)}
+                  style={{ background: "none", border: "none", color: "var(--brass-light)", fontSize: 11, cursor: "pointer", textTransform: "uppercase" }}
+                >
+                  Assign
+                </button>
+              )}
               <button
                 onClick={() => { setResetId(resetId === u.id ? null : u.id); setResetValue(""); setResetError(""); }}
                 style={{ background: "none", border: "none", color: "var(--brass-light)", fontSize: 11, cursor: "pointer", textTransform: "uppercase" }}
@@ -3998,6 +4058,46 @@ function UsersView({ currentUser }) {
               </button>
             </div>
           </div>
+
+          {assignId === u.id && (
+            <div style={{ padding: "12px 0 16px", borderBottom: "1px solid var(--line)" }}>
+              {assignError && <div className="error-box">{assignError}</div>}
+              <div style={{ fontSize: 12, color: "var(--slate2)", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                Assigned garages
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
+                {garages.map((g) => (
+                  <label key={g.id} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13 }}>
+                    <input
+                      type="checkbox"
+                      checked={assignGarageIds.includes(g.id)}
+                      onChange={() => toggleGarage(g.id)}
+                      style={{ width: "auto" }}
+                    />
+                    {g.name}
+                  </label>
+                ))}
+              </div>
+              <div className="field">
+                <label>Report email (daily revenue report goes here)</label>
+                <input
+                  type="email"
+                  value={assignEmail}
+                  onChange={(e) => setAssignEmail(e.target.value)}
+                  placeholder="admin@example.com"
+                />
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button className="btn btn-primary" style={{ width: "auto", padding: "10px 18px" }} onClick={saveAssignment} disabled={assignSaving}>
+                  {assignSaving ? "Saving…" : "Save"}
+                </button>
+                <button className="btn btn-ghost" style={{ width: "auto", padding: "10px 18px", marginTop: 0 }} onClick={() => setAssignId(null)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
           {resetId === u.id && (
             <div style={{ padding: "10px 0 14px", borderBottom: "1px solid var(--line)" }}>
               {resetError && <div className="error-box">{resetError}</div>}
