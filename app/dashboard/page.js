@@ -796,9 +796,6 @@ function CheckOutView() {
     return () => closeCamera();
   }, []);
 
-  // Launches Square Point of Sale app with Tap to Pay (NFC) as the
-  // preferred payment method — uses the Alacrity PDA's built-in NFC reader,
-  // no external Square Reader hardware needed.
   function launchSquarePOS() {
     if (!ticket || !currentUserId) return;
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
@@ -816,45 +813,28 @@ function CheckOutView() {
       return;
     }
 
-    // Custom data carries ticketId and employeeId so the callback can
-    // complete checkout without needing a session cookie.
     const customData = `${ticket.id}|${currentUserId}`;
 
     const params = new URLSearchParams({
       client_id: clientId,
-      // Amount in cents — Square POS API requires integer cents.
       amount_money: amountCents,
       currency_code: "USD",
       callback_url: callbackUrl,
       data: customData,
-      // Request contactless/NFC (Tap to Pay on Android) as the preferred
-      // tender type. Square POS app will activate NFC mode on the Alacrity's
-      // built-in reader. CREDIT_CARD is included as fallback in case the
-      // customer's card isn't NFC-enabled (some older cards).
       options: JSON.stringify({
         supported_tender_types: [
-          "CARD_ON_FILE",      // Google Pay, Apple Pay, Samsung Pay
-          "CREDIT_CARD",       // NFC chip cards + fallback
+          "CARD_ON_FILE",
+          "CREDIT_CARD",
         ],
-        // Skip the payment method selection screen in Square POS and go
-        // straight to the tap/NFC screen — faster checkout flow.
         skip_receipt_screen: false,
       }),
     });
 
-    // Square POS deep link — opens Square Point of Sale app directly.
-    const squareUrl = `square-commerce-v1://payment/create?${params.toString()}`;
-
-    // Check if Square POS app is installed before redirecting.
-    // If it's not installed, the deep link silently fails on Android.
-    // We set a timeout: if the app doesn't open within 2 seconds,
-    // show an install prompt instead.
-    const timeout = setTimeout(() => {
-      setError("Square Point of Sale app doesn't appear to be installed. Please install it from the Play Store and try again.");
-    }, 2000);
-
-    window.addEventListener("blur", () => clearTimeout(timeout), { once: true });
-    window.location.href = squareUrl;
+    // Direct redirect to Square POS deep link.
+    // On Android, if Square POS is installed this opens it immediately.
+    // We no longer use the blur/timeout detection since it's unreliable
+    // across different Android browsers and WebViews.
+    window.location.href = `square-commerce-v1://payment/create?${params.toString()}`;
   }
 
   async function completeCheckout() {
