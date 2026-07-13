@@ -830,32 +830,31 @@ function CheckOutView() {
       }),
     });
 
-    // Square POS API requires amount as plain integer cents
-    // Build params manually to ensure correct format
-    const squareParams = new URLSearchParams();
-    squareParams.set("client_id", clientId);
-    squareParams.set("amount_money", String(amountCents));
-    squareParams.set("currency_code", "USD");
-    squareParams.set("callback_url", callbackUrl);
-    squareParams.set("data", customData);
-    squareParams.set("options", JSON.stringify({
-      supported_tender_types: ["CARD_ON_FILE", "CREDIT_CARD"],
-    }));
-
-    const paramString = squareParams.toString();
-
-    // intent:// scheme with S.browser_fallback_url=none prevents Chrome
-    // from redirecting to Play Store when the app is already installed.
+    // Square Android web API uses the intent:// scheme with specific
+    // com.squareup.register.* parameters — NOT a JSON blob like the iOS version.
+    // Reference: https://developer.squareup.com/docs/pos-api/web-technical-reference
     const intentUrl = [
-      `intent://payment/create?${paramString}`,
-      `#Intent`,
-      `scheme=square-commerce-v1`,
+      `intent:#Intent`,
+      `action=com.squareup.pos.action.CHARGE`,
       `package=com.squareup`,
-      `S.browser_fallback_url=https%3A%2F%2Fplay.google.com%2Fstore%2Fapps%2Fdetails%3Fid%3Dcom.squareup`,
+      `S.browser_fallback_url=${encodeURIComponent("https://play.google.com/store/apps/details?id=com.squareup")}`,
+      `S.com.squareup.pos.WEB_CALLBACK_URI=${encodeURIComponent(callbackUrl)}`,
+      `S.com.squareup.pos.CLIENT_ID=${clientId}`,
+      `S.com.squareup.pos.API_VERSION=v2.0`,
+      `i.com.squareup.pos.TOTAL_AMOUNT=${amountCents}`,
+      `S.com.squareup.pos.CURRENCY_CODE=USD`,
+      `S.com.squareup.pos.NOTE=Parking ticket #${ticket.ticketNumber}`,
+      `S.com.squareup.pos.TENDER_TYPES=com.squareup.pos.TENDER_CARD,com.squareup.pos.TENDER_CARD_ON_FILE`,
+      `S.com.squareup.pos.REQUEST_METADATA=${encodeURIComponent(customData)}`,
       `end`
     ].join(";");
 
-    window.location.href = intentUrl;
+    const a = document.createElement("a");
+    a.href = intentUrl;
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => document.body.removeChild(a), 1000);
   }
 
   async function completeCheckout() {

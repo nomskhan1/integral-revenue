@@ -12,19 +12,21 @@ function todayStr() {
   return new Date().toISOString().slice(0, 10);
 }
 
-// Square redirects here after a payment attempt with these query params:
-//   status        — "ok" (approved) or "cancel" (user cancelled)
-//   transaction_id — Square's transaction ID (only present on success)
-//   error_code    — error code if failed
-//   data          — our custom data string we passed in (ticketId|employeeId)
-//
-// The callback must redirect (302) back to the dashboard since Square
-// opens this URL in the browser/WebView, not as an API call.
+// Square redirects here after a payment attempt.
+// Android Square POS API sends these query params:
+//   status              — "ok" (approved) or "cancel" (user cancelled)  
+//   transaction_id      — Square's transaction ID (only present on success)
+//   error_code          — error code if failed
+//   request_metadata    — our custom data string we passed in (ticketId|employeeId)
+//   com.squareup.pos.REQUEST_METADATA — alternate key Android uses
 async function GET(req) {
   const url = new URL(req.url);
   const status = url.searchParams.get("status");
   const transactionId = url.searchParams.get("transaction_id");
-  const data = url.searchParams.get("data") || "";
+  // Android uses request_metadata, iOS uses data
+  const data = url.searchParams.get("request_metadata") 
+    || url.searchParams.get("data") 
+    || "";
   const errorCode = url.searchParams.get("error_code");
 
   const dashboardUrl = process.env.NEXT_PUBLIC_APP_URL || "https://integral-revenue.vercel.app";
