@@ -849,12 +849,7 @@ function CheckOutView() {
       `end`
     ].join(";");
 
-    const a = document.createElement("a");
-    a.href = intentUrl;
-    a.style.display = "none";
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => document.body.removeChild(a), 1000);
+    window.location.href = intentUrl;
   }
 
   async function completeCheckout() {
