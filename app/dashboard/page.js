@@ -830,16 +830,18 @@ function CheckOutView() {
       }),
     });
 
-    // Use a hidden anchor tag click instead of window.location.href —
-    // Android Chrome handles intent:// and custom scheme deep links more
-    // reliably when triggered by a real user gesture on an anchor element.
     const squareUrl = `square-commerce-v1://payment/create?${params.toString()}`;
-    const a = document.createElement("a");
-    a.href = squareUrl;
-    a.style.display = "none";
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => document.body.removeChild(a), 1000);
+
+    // Try intent:// scheme first — more reliable in Chrome on Android
+    // than custom scheme deep links which Chrome sometimes silently blocks.
+    const intentUrl = `intent://payment/create?${params.toString()}#Intent;scheme=square-commerce-v1;package=com.squareup;end`;
+
+    // Try the intent URL first, fall back to direct scheme
+    try {
+      window.location.href = intentUrl;
+    } catch (e) {
+      window.location.href = squareUrl;
+    }
   }
 
   async function completeCheckout() {
