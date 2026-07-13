@@ -830,11 +830,16 @@ function CheckOutView() {
       }),
     });
 
-    // Direct redirect to Square POS deep link.
-    // On Android, if Square POS is installed this opens it immediately.
-    // We no longer use the blur/timeout detection since it's unreliable
-    // across different Android browsers and WebViews.
-    window.location.href = `square-commerce-v1://payment/create?${params.toString()}`;
+    // Use a hidden anchor tag click instead of window.location.href —
+    // Android Chrome handles intent:// and custom scheme deep links more
+    // reliably when triggered by a real user gesture on an anchor element.
+    const squareUrl = `square-commerce-v1://payment/create?${params.toString()}`;
+    const a = document.createElement("a");
+    a.href = squareUrl;
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => document.body.removeChild(a), 1000);
   }
 
   async function completeCheckout() {
