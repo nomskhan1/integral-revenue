@@ -830,18 +830,32 @@ function CheckOutView() {
       }),
     });
 
-    const squareUrl = `square-commerce-v1://payment/create?${params.toString()}`;
+    // Square POS API requires amount as plain integer cents
+    // Build params manually to ensure correct format
+    const squareParams = new URLSearchParams();
+    squareParams.set("client_id", clientId);
+    squareParams.set("amount_money", String(amountCents));
+    squareParams.set("currency_code", "USD");
+    squareParams.set("callback_url", callbackUrl);
+    squareParams.set("data", customData);
+    squareParams.set("options", JSON.stringify({
+      supported_tender_types: ["CARD_ON_FILE", "CREDIT_CARD"],
+    }));
 
-    // Try intent:// scheme first — more reliable in Chrome on Android
-    // than custom scheme deep links which Chrome sometimes silently blocks.
-    const intentUrl = `intent://payment/create?${params.toString()}#Intent;scheme=square-commerce-v1;package=com.squareup;end`;
+    const paramString = squareParams.toString();
 
-    // Try the intent URL first, fall back to direct scheme
-    try {
-      window.location.href = intentUrl;
-    } catch (e) {
-      window.location.href = squareUrl;
-    }
+    // intent:// scheme with S.browser_fallback_url=none prevents Chrome
+    // from redirecting to Play Store when the app is already installed.
+    const intentUrl = [
+      `intent://payment/create?${paramString}`,
+      `#Intent`,
+      `scheme=square-commerce-v1`,
+      `package=com.squareup`,
+      `S.browser_fallback_url=https%3A%2F%2Fplay.google.com%2Fstore%2Fapps%2Fdetails%3Fid%3Dcom.squareup`,
+      `end`
+    ].join(";");
+
+    window.location.href = intentUrl;
   }
 
   async function completeCheckout() {
