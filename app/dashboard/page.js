@@ -833,23 +833,15 @@ function CheckOutView() {
     // Square Android web API uses the intent:// scheme with specific
     // com.squareup.register.* parameters — NOT a JSON blob like the iOS version.
     // Reference: https://developer.squareup.com/docs/pos-api/web-technical-reference
-    const intentUrl = [
-      `intent:#Intent`,
-      `action=com.squareup.pos.action.CHARGE`,
-      `package=com.squareup`,
-      `S.browser_fallback_url=${encodeURIComponent("https://play.google.com/store/apps/details?id=com.squareup")}`,
-      `S.com.squareup.pos.WEB_CALLBACK_URI=${encodeURIComponent(callbackUrl)}`,
-      `S.com.squareup.pos.CLIENT_ID=${clientId}`,
-      `S.com.squareup.pos.API_VERSION=v2.0`,
-      `i.com.squareup.pos.TOTAL_AMOUNT=${amountCents}`,
-      `S.com.squareup.pos.CURRENCY_CODE=USD`,
-      `S.com.squareup.pos.NOTE=Parking ticket #${ticket.ticketNumber}`,
-      `S.com.squareup.pos.TENDER_TYPES=com.squareup.pos.TENDER_CARD,com.squareup.pos.TENDER_CARD_ON_FILE`,
-      `S.com.squareup.pos.REQUEST_METADATA=${encodeURIComponent(customData)}`,
-      `end`
-    ].join(";");
-
-    window.location.href = intentUrl;
+    // Navigate to a dedicated redirect page that renders a real tappable
+    // anchor link — more reliable than JavaScript-triggered deep links
+    // in Chrome on Android.
+    const params = new URLSearchParams({
+      amount: String(amountCents),
+      data: customData,
+      ticket: ticket.ticketNumber,
+    });
+    window.location.href = `/square-redirect?${params.toString()}`;
   }
 
   async function completeCheckout() {
