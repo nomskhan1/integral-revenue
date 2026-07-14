@@ -21,23 +21,21 @@ export default function SquareRedirectContent() {
       return;
     }
 
-    const url = [
-      `intent:#Intent`,
-      `action=com.squareup.pos.action.CHARGE`,
-      `package=com.squareup`,
-      `S.browser_fallback_url=${encodeURIComponent("https://play.google.com/store/apps/details?id=com.squareup")}`,
-      `S.com.squareup.pos.WEB_CALLBACK_URI=${encodeURIComponent(callbackUrl)}`,
-      `S.com.squareup.pos.CLIENT_ID=${clientId}`,
-      `S.com.squareup.pos.API_VERSION=v2.0`,
-      `i.com.squareup.pos.TOTAL_AMOUNT=${amountCents}`,
-      `S.com.squareup.pos.CURRENCY_CODE=USD`,
-      `S.com.squareup.pos.NOTE=Parking ticket #${ticketNumber || ""}`,
-      `S.com.squareup.pos.TENDER_TYPES=com.squareup.pos.TENDER_CARD,com.squareup.pos.TENDER_CARD_ON_FILE`,
-      `S.com.squareup.pos.REQUEST_METADATA=${encodeURIComponent(customData)}`,
-      `end`
-    ].join(";");
+    // Use the simple square-commerce-v1:// scheme directly as an anchor href.
+    // This is Square's documented web deep link format and works when tapped
+    // as a real anchor element on Android.
+    const squareParams = new URLSearchParams({
+      client_id: clientId,
+      amount_money: amountCents,
+      currency_code: "USD",
+      callback_url: callbackUrl,
+      data: customData,
+      options: JSON.stringify({
+        supported_tender_types: ["CREDIT_CARD", "CARD_ON_FILE"],
+      }),
+    });
 
-    setIntentUrl(url);
+    setIntentUrl(`square-commerce-v1://payment/create?${squareParams.toString()}`);
   }, [searchParams]);
 
   const dollars = ((parseInt(searchParams.get("amount") || "0")) / 100).toFixed(2);
