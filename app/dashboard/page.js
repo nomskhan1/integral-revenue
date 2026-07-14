@@ -840,6 +840,7 @@ function CheckOutView() {
       amount: String(amountCents),
       data: customData,
       ticket: ticket.ticketNumber,
+      employee: currentUserId,
     });
     window.location.href = `/square-redirect?${redirectParams.toString()}`;
   }

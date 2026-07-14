@@ -1,24 +1,16 @@
 const prisma = require("../../../../lib/db");
-const { getSessionFromRequest } = require("../../../../lib/auth");
 const { calculateFee } = require("../../../../lib/pricing");
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
 }
 
-// POST { ticketId } — manually marks a ticket as paid by credit card.
-// Used as a fallback when Square's callback doesn't fire automatically
-// after a successful Tap to Pay transaction.
 async function POST(req) {
-  const session = getSessionFromRequest(req);
-  if (!session) {
-    return new Response(JSON.stringify({ error: "Not signed in." }), { status: 401 });
-  }
-
   const body = await req.json();
-  const { ticketId } = body || {};
-  if (!ticketId) {
-    return new Response(JSON.stringify({ error: "ticketId is required." }), { status: 400 });
+  const { ticketId, employeeId } = body || {};
+
+  if (!ticketId || !employeeId) {
+    return new Response(JSON.stringify({ error: "ticketId and employeeId are required." }), { status: 400 });
   }
 
   const ticket = await prisma.ticket.findUnique({
@@ -31,7 +23,12 @@ async function POST(req) {
   }
 
   if (ticket.status !== "PARKED") {
-    return new Response(JSON.stringify({ ok: true, alreadyCompleted: true }), { status: 200 });
+    return new Response(JSON.stringify({ ok: true, alreadyCompleted: true, ticketNumber: ticket.ticketNumber, feeAmount: ticket.feeAmount }), { status: 200 });
+  }
+
+  const employee = await prisma.user.findUnique({ where: { id: employeeId } });
+  if (!employee) {
+    return new Response(JSON.stringify({ error: "Employee not found." }), { status: 404 });
   }
 
   const checkOutTime = new Date();
@@ -39,11 +36,11 @@ async function POST(req) {
   const { feeAmount } = await calculateFee(ticket.garage, durationMinutes);
 
   let shiftReport = await prisma.shiftReport.findFirst({
-    where: { employeeId: session.id, garageId: ticket.garageId, shiftDate: todayStr(), status: "DRAFT" },
+    where: { employeeId, garageId: ticket.garageId, shiftDate: todayStr(), status: "DRAFT" },
   });
   if (!shiftReport) {
     shiftReport = await prisma.shiftReport.create({
-      data: { garageId: ticket.garageId, employeeId: session.id, shiftDate: todayStr(), status: "DRAFT" },
+      data: { garageId: ticket.garageId, employeeId, shiftDate: todayStr(), status: "DRAFT" },
     });
   }
 
@@ -70,7 +67,7 @@ async function POST(req) {
       feeAmount,
       paymentMethod: "CREDIT_CARD",
       paymentNote: "Square Tap to Pay — manually confirmed",
-      checkedOutById: session.id,
+      checkedOutById: employeeId,
       shiftReportId: shiftReport.id,
     },
   });

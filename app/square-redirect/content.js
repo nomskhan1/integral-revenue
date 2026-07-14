@@ -13,6 +13,7 @@ export default function SquareRedirectContent() {
   const amountCents = searchParams.get("amount");
   const customData = searchParams.get("data");
   const ticketNumber = searchParams.get("ticket");
+  const employeeId = searchParams.get("employee");
   const dollars = ((parseInt(amountCents || "0")) / 100).toFixed(2);
 
   useEffect(() => {
@@ -47,7 +48,7 @@ export default function SquareRedirectContent() {
       const res = await fetch("/api/square/manual-complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ticketId }),
+        body: JSON.stringify({ ticketId, employeeId }),
       });
       const data = await res.json();
       if (res.ok) {
