@@ -1,6 +1,6 @@
-const prisma = require("../../../../../lib/db");
-const { getSessionFromRequest } = require("../../../../../lib/auth");
-const { calculateFee } = require("../../../../../lib/pricing");
+const prisma = require("../../../../lib/db");
+const { getSessionFromRequest } = require("../../../../lib/auth");
+const { calculateFee } = require("../../../../lib/pricing");
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
