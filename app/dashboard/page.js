@@ -1120,7 +1120,7 @@ function CheckOutView() {
 
         {paymentMethod === "CREDIT_CARD" ? (
           <button className="btn btn-primary" disabled={completing || !paymentMethod} onClick={launchSquarePOS}>
-            {`📱 Tap to Pay — ${money(displayedFee)}`}
+            💳 Charge card — {money(displayedFee)}
           </button>
         ) : (
           <button className="btn btn-primary" disabled={completing || !paymentMethod} onClick={completeCheckout}>
