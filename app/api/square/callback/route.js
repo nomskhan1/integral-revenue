@@ -13,30 +13,43 @@ function todayStr() {
 }
 
 // Square redirects here after a payment attempt.
-// Android Square POS API sends these query params:
-//   status              — "ok" (approved) or "cancel" (user cancelled)  
-//   transaction_id      — Square's transaction ID (only present on success)
-//   error_code          — error code if failed
-//   request_metadata    — our custom data string we passed in (ticketId|employeeId)
-//   com.squareup.pos.REQUEST_METADATA — alternate key Android uses
+// Square POS API sends these query params back:
+//   status           — "ok" (approved) or "cancel" (user cancelled)
+//   transaction_id   — Square's transaction ID (only on success)
+//   error_code       — error code if failed
+//   data             — URL-encoded JSON with our original request data
+//   request_metadata — sometimes used instead of data on Android
 async function GET(req) {
   const url = new URL(req.url);
   const status = url.searchParams.get("status");
   const transactionId = url.searchParams.get("transaction_id");
-  // Android uses request_metadata, iOS uses data
-  const data = url.searchParams.get("request_metadata") 
-    || url.searchParams.get("data") 
-    || "";
   const errorCode = url.searchParams.get("error_code");
 
+  // Square returns our original data back - parse the customData we embedded in notes
+  // We stored ticketId|employeeId in the notes field
+  let customData = url.searchParams.get("request_metadata")
+    || url.searchParams.get("data")
+    || "";
+
+  // If data is a JSON object, try to parse it
+  try {
+    const parsed = JSON.parse(decodeURIComponent(customData));
+    if (parsed.notes) customData = parsed.notes;
+  } catch {}
+
+  // Extract from notes field format "ticketId|employeeId" 
+  // or try the raw value directly
   const dashboardUrl = process.env.NEXT_PUBLIC_APP_URL || "https://integral-revenue.vercel.app";
   const checkoutTab = `${dashboardUrl}/dashboard?tab=checkout`;
 
-  // Parse our custom data field: "ticketId|employeeId"
-  const [ticketId, employeeId] = data.split("|");
+  // Log all params for debugging
+  console.log("[square/callback] params:", Object.fromEntries(url.searchParams.entries()));
+
+  const [ticketId, employeeId] = customData.split("|");
 
   if (!ticketId || !employeeId) {
-    return Response.redirect(`${checkoutTab}&square_error=invalid_data`, 302);
+    // Redirect to dashboard with all params visible for debugging
+    return Response.redirect(`${checkoutTab}&square_error=invalid_data&raw=${encodeURIComponent(customData)}`, 302);
   }
 
   if (status !== "ok") {
