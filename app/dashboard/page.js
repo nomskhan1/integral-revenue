@@ -836,12 +836,12 @@ function CheckOutView() {
     // Navigate to a dedicated redirect page that renders a real tappable
     // anchor link — more reliable than JavaScript-triggered deep links
     // in Chrome on Android.
-    const params = new URLSearchParams({
+    const redirectParams = new URLSearchParams({
       amount: String(amountCents),
       data: customData,
       ticket: ticket.ticketNumber,
     });
-    window.location.href = `/square-redirect?${params.toString()}`;
+    window.location.href = `/square-redirect?${redirectParams.toString()}`;
   }
 
   async function completeCheckout() {
