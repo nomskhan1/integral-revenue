@@ -796,43 +796,6 @@ function CheckOutView() {
     return () => closeCamera();
   }, []);
 
-  function launchSquarePOS() {
-    if (!ticket || !currentUserId) return;
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
-    const callbackUrl = `${appUrl}/api/square/callback`;
-    const amountCents = Math.round((ticket.previewFee || 0) * 100);
-    const clientId = process.env.NEXT_PUBLIC_SQUARE_APP_ID;
-
-    if (!clientId) {
-      setError("Square is not configured yet. Add NEXT_PUBLIC_SQUARE_APP_ID to your environment variables.");
-      return;
-    }
-
-    if (amountCents <= 0) {
-      setError("Cannot charge $0. Please check the fee calculation.");
-      return;
-    }
-
-    const customData = `${ticket.id}|${currentUserId}`;
-
-    const params = new URLSearchParams({
-      client_id: clientId,
-      amount_money: amountCents,
-      currency_code: "USD",
-      callback_url: callbackUrl,
-      data: customData,
-      options: JSON.stringify({
-        supported_tender_types: [
-          "CARD_ON_FILE",
-          "CREDIT_CARD",
-        ],
-        skip_receipt_screen: false,
-      }),
-    });
-
-    // Square Android web API uses the intent:// scheme with specific
-    // com.squareup.register.* parameters — NOT a JSON blob like the iOS version.
-    // Reference: https://developer.squareup.com/docs/pos-api/web-technical-reference
   // Sends payment request directly to the paired Square Reader via
   // Square Terminal API — no app switching, fully automated.
   async function launchSquarePOS() {
@@ -887,10 +850,10 @@ function CheckOutView() {
       // Stop polling after 2 minutes (timeout)
       setTimeout(() => {
         clearInterval(pollInterval);
-        if (completing) {
-          setCompleting(false);
-          setError("Payment timed out. Please check the Reader and try again.");
-        }
+        setCompleting((prev) => {
+          if (prev) setError("Payment timed out. Please check the Reader and try again.");
+          return false;
+        });
       }, 120000);
 
     } catch {
