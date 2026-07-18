@@ -810,21 +810,17 @@ function CheckOutView() {
     const clientId = process.env.NEXT_PUBLIC_SQUARE_APP_ID;
 
     if (!clientId) {
-      alert("Square not configured: NEXT_PUBLIC_SQUARE_APP_ID is missing");
       setError("Square is not configured yet. Contact your administrator.");
       return;
     }
 
     if (amountCents <= 0) {
-      alert("Amount is 0 or negative: " + amountCents);
       setError("Cannot charge $0. Please check the fee calculation.");
       return;
     }
 
     const customData = `${ticket.id}|${currentUserId}`;
-    alert("Launching Square with amount: $" + (amountCents/100).toFixed(2) + " clientId: " + clientId.substring(0,10) + "...");
 
-    // Square POS API — JSON data parameter format
     const dataParameter = {
       amount_money: {
         amount: String(amountCents),
@@ -838,8 +834,22 @@ function CheckOutView() {
         supported_tender_types: ["CREDIT_CARD", "CARD_ON_FILE"],
       },
     };
+    const squareUrl = `square-commerce-v1://payment/create?data=${encodeURIComponent(JSON.stringify(dataParameter))}`;
 
-    window.location.href = `square-commerce-v1://payment/create?data=${encodeURIComponent(JSON.stringify(dataParameter))}`;
+    // Remove debug alert
+    // Use Capacitor's native URL opener which handles custom schemes properly
+    // window.location.href is blocked by Capacitor WebView for custom schemes
+    if (window.Capacitor && window.Capacitor.isNativePlatform()) {
+      // Native app — use Capacitor to open the URL natively
+      window.Capacitor.Plugins.App.openUrl({ url: squareUrl })
+        .catch(() => {
+          // Fallback if plugin not available
+          window.open(squareUrl, "_system");
+        });
+    } else {
+      // Web fallback
+      window.location.href = squareUrl;
+    }
   }
 
   async function completeCheckout() {
