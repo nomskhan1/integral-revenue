@@ -796,70 +796,47 @@ function CheckOutView() {
     return () => closeCamera();
   }, []);
 
-  // Sends payment request directly to the paired Square Reader via
-  // Square Terminal API — no app switching, fully automated.
-  async function launchSquarePOS() {
+  // Launches Square POS app via deep link with amount pre-filled.
+  // Works in native Android app (Capacitor wrapper) — the deep link
+  // square-commerce-v1:// is handled natively, unlike Chrome WebView.
+  // Square Reader processes the card, then returns to the app via callback.
+  function launchSquarePOS() {
     if (!ticket || !currentUserId) return;
-    setCompleting(true);
     setError("");
 
-    try {
-      const res = await fetch("/api/square/charge", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ticketId: ticket.id }),
-      });
-      const data = await res.json();
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
+    const callbackUrl = `${appUrl}/api/square/callback`;
+    const amountCents = Math.round((ticket.previewFee || 0) * 100);
+    const clientId = process.env.NEXT_PUBLIC_SQUARE_APP_ID;
 
-      if (!res.ok) {
-        setError(data.error || "Failed to start payment.");
-        setCompleting(false);
-        return;
-      }
-
-      // Payment request sent to Reader — now poll for completion
-      const { checkoutId, ticketNumber, amount } = data;
-      setError(""); // clear errors
-
-      // Show polling message
-      const pollInterval = setInterval(async () => {
-        try {
-          const statusRes = await fetch(`/api/square/status?checkoutId=${checkoutId}&ticketId=${ticket.id}`);
-          const statusData = await statusRes.json();
-
-          if (statusData.status === "COMPLETED") {
-            clearInterval(pollInterval);
-            setCompleting(false);
-            setCompleted({
-              ticketNumber: statusData.ticketNumber || ticketNumber,
-              feeAmount: statusData.feeAmount || amount,
-              paymentMethod: "CREDIT_CARD",
-              _squarePaid: true,
-            });
-          } else if (statusData.status === "CANCELLED") {
-            clearInterval(pollInterval);
-            setCompleting(false);
-            setError("Payment was cancelled on the Reader. Please try again.");
-          }
-          // Still PENDING or IN_PROGRESS — keep polling
-        } catch {
-          // Network error during poll — keep trying
-        }
-      }, 2000); // Poll every 2 seconds
-
-      // Stop polling after 2 minutes (timeout)
-      setTimeout(() => {
-        clearInterval(pollInterval);
-        setCompleting((prev) => {
-          if (prev) setError("Payment timed out. Please check the Reader and try again.");
-          return false;
-        });
-      }, 120000);
-
-    } catch {
-      setError("Network error. Please try again.");
-      setCompleting(false);
+    if (!clientId) {
+      setError("Square is not configured yet. Contact your administrator.");
+      return;
     }
+
+    if (amountCents <= 0) {
+      setError("Cannot charge $0. Please check the fee calculation.");
+      return;
+    }
+
+    const customData = `${ticket.id}|${currentUserId}`;
+
+    // Square POS API — JSON data parameter format
+    const dataParameter = {
+      amount_money: {
+        amount: String(amountCents),
+        currency_code: "USD",
+      },
+      callback_url: callbackUrl,
+      client_id: clientId,
+      version: "1.3",
+      notes: customData,
+      options: {
+        supported_tender_types: ["CREDIT_CARD", "CARD_ON_FILE"],
+      },
+    };
+
+    window.location.href = `square-commerce-v1://payment/create?data=${encodeURIComponent(JSON.stringify(dataParameter))}`;
   }
 
   async function completeCheckout() {
@@ -1136,8 +1113,8 @@ function CheckOutView() {
         </div>
 
         {paymentMethod === "CREDIT_CARD" ? (
-          <button className="btn btn-primary" disabled={completing || !paymentMethod} onClick={launchSquarePOS}>
-            {completing ? "Waiting for card tap..." : `💳 Charge card — ${money(displayedFee)}`}
+          <button className="btn btn-primary" disabled={!paymentMethod} onClick={launchSquarePOS}>
+            💳 Charge card — {money(displayedFee)}
           </button>
         ) : (
           <button className="btn btn-primary" disabled={completing || !paymentMethod} onClick={completeCheckout}>
