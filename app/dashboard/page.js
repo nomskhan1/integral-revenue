@@ -810,16 +810,19 @@ function CheckOutView() {
     const clientId = process.env.NEXT_PUBLIC_SQUARE_APP_ID;
 
     if (!clientId) {
+      alert("Square not configured: NEXT_PUBLIC_SQUARE_APP_ID is missing");
       setError("Square is not configured yet. Contact your administrator.");
       return;
     }
 
     if (amountCents <= 0) {
+      alert("Amount is 0 or negative: " + amountCents);
       setError("Cannot charge $0. Please check the fee calculation.");
       return;
     }
 
     const customData = `${ticket.id}|${currentUserId}`;
+    alert("Launching Square with amount: $" + (amountCents/100).toFixed(2) + " clientId: " + clientId.substring(0,10) + "...");
 
     // Square POS API — JSON data parameter format
     const dataParameter = {
