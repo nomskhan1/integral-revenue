@@ -821,20 +821,15 @@ function CheckOutView() {
 
     const customData = `${ticket.id}|${currentUserId}`;
 
-    const dataParameter = {
-      amount_money: {
-        amount: String(amountCents),
-        currency_code: "USD",
-      },
-      callback_url: callbackUrl,
-      client_id: clientId,
-      version: "1.3",
-      notes: customData,
-      options: {
-        supported_tender_types: ["CREDIT_CARD", "CARD_ON_FILE"],
-      },
-    };
-    const squareUrl = `square-commerce-v1://payment/create?data=${encodeURIComponent(JSON.stringify(dataParameter))}`;
+    // Use simple flat URL parameters — more reliable than JSON data blob
+    const squareParams = new URLSearchParams();
+    squareParams.set("client_id", clientId);
+    squareParams.set("amount_money", String(amountCents));
+    squareParams.set("currency_code", "USD");
+    squareParams.set("callback_url", callbackUrl);
+    squareParams.set("notes", customData);
+
+    const squareUrl = `square-commerce-v1://payment/create?${squareParams.toString()}`;
 
     // Try multiple approaches to open the Square URL scheme
     const isNative = window.Capacitor && window.Capacitor.isNativePlatform();
