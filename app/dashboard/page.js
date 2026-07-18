@@ -800,7 +800,7 @@ function CheckOutView() {
   // Works in native Android app (Capacitor wrapper) — the deep link
   // square-commerce-v1:// is handled natively, unlike Chrome WebView.
   // Square Reader processes the card, then returns to the app via callback.
-  function launchSquarePOS() {
+  async function launchSquarePOS() {
     if (!ticket || !currentUserId) return;
     setError("");
 
@@ -836,20 +836,42 @@ function CheckOutView() {
     };
     const squareUrl = `square-commerce-v1://payment/create?data=${encodeURIComponent(JSON.stringify(dataParameter))}`;
 
-    // Remove debug alert
-    // Use Capacitor's native URL opener which handles custom schemes properly
-    // window.location.href is blocked by Capacitor WebView for custom schemes
-    if (window.Capacitor && window.Capacitor.isNativePlatform()) {
-      // Native app — use Capacitor to open the URL natively
-      window.Capacitor.Plugins.App.openUrl({ url: squareUrl })
-        .catch(() => {
-          // Fallback if plugin not available
-          window.open(squareUrl, "_system");
-        });
-    } else {
-      // Web fallback
-      window.location.href = squareUrl;
+    // Try multiple approaches to open the Square URL scheme
+    const isNative = window.Capacitor && window.Capacitor.isNativePlatform();
+    
+    if (isNative) {
+      // Method 1: Try Capacitor App plugin
+      try {
+        await window.Capacitor.Plugins.App.openUrl({ url: squareUrl });
+        return;
+      } catch (e1) {
+        console.log("App.openUrl failed:", e1);
+      }
+      
+      // Method 2: Try window.open with _system target
+      try {
+        window.open(squareUrl, "_system");
+        return;
+      } catch (e2) {
+        console.log("window.open _system failed:", e2);
+      }
+
+      // Method 3: Create and click an anchor
+      try {
+        const a = document.createElement("a");
+        a.href = squareUrl;
+        a.target = "_system";
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => document.body.removeChild(a), 500);
+        return;
+      } catch (e3) {
+        console.log("anchor click failed:", e3);
+      }
     }
+
+    // Web fallback
+    window.location.href = squareUrl;
   }
 
   async function completeCheckout() {
