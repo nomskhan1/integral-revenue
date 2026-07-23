@@ -12,7 +12,7 @@
 *{box-sizing:border-box;}
 html,body{margin:0;padding:0;}
 body{
-  background:#ffffff;
+  background:#F2F1EE;
   color:var(--cream);
   font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
   min-height:100vh;
@@ -105,7 +105,7 @@ h1.title{ font-family:"Oswald",sans-serif; font-size:26px; line-height:1.1; marg
 .status-SUBMITTED{ border:1px solid var(--green); color:var(--green); background:rgba(74,120,86,0.12); }
 
 .totals-grid{ display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:6px; }
-.totals-cell{ background:#ffffff; border:1px solid var(--line); border-radius:8px; padding:12px; }
+.totals-cell{ background:#F2F1EE; border:1px solid var(--line); border-radius:8px; padding:12px; }
 .totals-cell .label{ font-size:10px; letter-spacing:0.08em; text-transform:uppercase; color:var(--slate2); margin-bottom:4px; }
 .totals-cell .value{ font-family:"Oswald",sans-serif; font-size:20px; color:var(--brass-light); font-weight:600; }
 
