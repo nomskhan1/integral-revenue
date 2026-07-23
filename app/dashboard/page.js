@@ -870,6 +870,11 @@ function CheckOutView() {
   }
 
   async function completeCheckout() {
+    // Extra safety check — NC requires a valid verified voucher
+    if (paymentMethod === "NC" && !voucherStatus?.valid) {
+      setError("Please scan or enter a valid N/C voucher before completing checkout.");
+      return;
+    }
     setCompleting(true);
     setError("");
     const res = await fetch(`/api/tickets/${ticket.id}/checkout`, {
@@ -977,7 +982,7 @@ function CheckOutView() {
 
         {paymentMethod === "NC" && (
           <div className="field">
-            <label>N/C Voucher code (optional)</label>
+            <label>N/C Voucher — scan or enter code <span style={{ color: "var(--red)" }}>*</span></label>
 
             {/* Row 1: manual code entry + validate */}
             <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
@@ -1133,7 +1138,7 @@ function CheckOutView() {
               </div>
             )}
 
-            <div className="field-hint">Leave blank to proceed as N/C without a voucher.</div>
+            <div className="field-hint" style={{ color: "var(--red)" }}>A valid voucher must be scanned or entered to proceed as N/C.</div>
           </div>
         )}
 
@@ -1147,9 +1152,15 @@ function CheckOutView() {
             💳 Charge card — {money(displayedFee)}
           </button>
         ) : (
-          <button className="btn btn-primary" disabled={completing || !paymentMethod} onClick={completeCheckout}>
+          <button
+            className="btn btn-primary"
+            disabled={completing || !paymentMethod || (paymentMethod === "NC" && !voucherStatus?.valid)}
+            onClick={completeCheckout}
+          >
             {completing
               ? "Processing..."
+              : paymentMethod === "NC" && !voucherStatus?.valid
+              ? "Scan or enter valid voucher first"
               : ZERO_FEE_METHODS.has(paymentMethod)
               ? "Complete checkout — No charge"
               : `Complete checkout — ${money(displayedFee)}`}
