@@ -152,6 +152,11 @@ export default function Dashboard() {
                 Daily Closed
               </button>
             )}
+            {user.role === "GARAGE_MANAGER" && (
+              <button className={tab === "vouchers" ? "active" : ""} onClick={() => setTab("vouchers")}>
+                N/C Vouchers
+              </button>
+            )}
           </div>
         )}
 
