@@ -20,7 +20,7 @@ body{
 }
 a{color:var(--brass-light);}
 
-.shell{ max-width:480px; margin:0 auto; min-height:100vh; display:flex; flex-direction:column; }
+.shell{ max-width:480px; margin:0 auto; min-height:100vh; display:flex; flex-direction:column; background:var(--navy); }
 body.native-app .shell{ max-width:100%; padding-left:env(safe-area-inset-left); padding-right:env(safe-area-inset-right); }
 @media(min-width:700px){ .shell{ max-width:700px; } }
 @media(min-width:1000px){ .shell{ max-width:100%; } main{ padding-left:48px; padding-right:48px; } }
