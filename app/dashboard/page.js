@@ -354,12 +354,18 @@ function CheckInView() {
           body: JSON.stringify({ imageBase64: dataUrl }),
         });
         const data = await res.json();
-        if (res.ok) {
+        if (res.ok && data.url) {
           setDamagePhotoUrls(prev => [...prev, data.url]);
           damagePhotoUrlsRef.current = [...damagePhotoUrlsRef.current, data.url];
+        } else {
+          console.error("Damage photo upload failed:", data);
+          setError(`Photo upload failed: ${data.error || "Unknown error"}`);
         }
       }
-    } catch {}
+    } catch(err) {
+      console.error("Damage photo error:", err);
+      setError("Failed to upload photo. Please try again.");
+    }
     finally {
       setDamagePhotoUploading(false);
       e.target.value = "";
