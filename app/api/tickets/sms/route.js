@@ -1,5 +1,5 @@
-const prisma = require("../../../../../lib/db");
-const { getSessionFromRequest } = require("../../../../../lib/auth");
+const prisma = require("../../../../lib/db");
+const { getSessionFromRequest } = require("../../../../lib/auth");
 
 // POST { ticketId, phone } — sends ticket details to guest via SMS using Twilio
 async function POST(req) {
