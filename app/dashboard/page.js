@@ -1405,6 +1405,7 @@ function ReprintTicket({ ticket }) { return null; }
 function ActiveTicketsView() {
   const [tickets, setTickets] = useState([]);
   const [error, setError] = useState("");
+  const [expandedId, setExpandedId] = useState(null);
 
   const load = useCallback(async () => {
     const res = await fetch("/api/tickets?status=PARKED");
@@ -1442,11 +1443,20 @@ function ActiveTicketsView() {
           Checked-in vehicles will show up here until checkout.
         </div>
       ) : (
-        tickets.map((t) => (
-          <div key={t.id} className="list-row" style={{ display: "block" }}>
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
+        tickets.map((t) => {
+          const isExpanded = expandedId === t.id;
+          let damageUrls = [];
+          if (t.damagePhotoUrl) {
+            try { damageUrls = JSON.parse(t.damagePhotoUrl); } catch { damageUrls = [t.damagePhotoUrl]; }
+          }
+          return (
+          <div key={t.id} style={{ borderBottom: "1px solid var(--line)", marginBottom: 0 }}>
+            <div className="list-row" style={{ display: "flex", justifyContent: "space-between", borderBottom: "none", cursor: "pointer" }} onClick={() => setExpandedId(isExpanded ? null : t.id)}>
               <div>
-                <div style={{ fontWeight: 600 }}>#{t.ticketNumber}</div>
+                <div style={{ fontWeight: 600 }}>
+                  #{t.ticketNumber}
+                  {t.damageTypes && <span style={{ marginLeft: 8, fontSize: 11, color: "var(--red)", fontWeight: 600 }}>⚠ {t.damageTypes}</span>}
+                </div>
                 <div style={{ fontSize: 12, color: "var(--slate2)" }}>
                   {[t.vehicleColor, t.vehicleMake, t.vehicleModel].filter(Boolean).join(" ") || "No vehicle details"}
                   {t.licensePlate ? ` · ${t.licensePlate}` : ""}
@@ -1458,21 +1468,50 @@ function ActiveTicketsView() {
               <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                 <button
                   style={{ background: "none", border: "none", color: "var(--brass-light)", fontSize: 11, cursor: "pointer", textTransform: "uppercase" }}
-                  onClick={() => handleReprint(t)}
+                  onClick={(e) => { e.stopPropagation(); handleReprint(t); }}
                 >
                   Reprint
                 </button>
                 <button
                   className="role-tag"
                   style={{ background: "none", cursor: "pointer", color: "var(--red)", height: "fit-content" }}
-                  onClick={() => { if (window.confirm(`Cancel ticket #${t.ticketNumber}?`)) cancelTicket(t.id); }}
+                  onClick={(e) => { e.stopPropagation(); if (window.confirm(`Cancel ticket #${t.ticketNumber}?`)) cancelTicket(t.id); }}
                 >
                   Cancel
                 </button>
+                <span style={{ fontSize: 12, color: "var(--slate2)" }}>{isExpanded ? "▲" : "▼"}</span>
               </div>
             </div>
+            {isExpanded && (
+              <div style={{ padding: "12px 0 16px", borderTop: "1px solid var(--line)" }}>
+                {t.apartmentNumber && <div style={{ fontSize: 13, color: "var(--slate2)", marginBottom: 4 }}>Unit: {t.apartmentNumber}</div>}
+                {t.parkingLocation && <div style={{ fontSize: 13, color: "var(--slate2)", marginBottom: 4 }}>Location: {t.parkingLocation}</div>}
+                {t.damageTypes && (
+                  <div style={{ fontSize: 13, color: "var(--red)", fontWeight: 600, marginBottom: 8 }}>
+                    ⚠ Pre-existing damage: {t.damageTypes}
+                  </div>
+                )}
+                {t.photoUrl && (
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ fontSize: 11, color: "var(--slate2)", marginBottom: 4 }}>Vehicle photo</div>
+                    <img src={t.photoUrl} alt="Vehicle" style={{ width: "100%", borderRadius: 8, maxHeight: 160, objectFit: "cover" }} />
+                  </div>
+                )}
+                {damageUrls.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: 11, color: "var(--slate2)", marginBottom: 6 }}>Damage photos ({damageUrls.length})</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                      {damageUrls.map((url, i) => (
+                        <img key={i} src={url} alt={`Damage ${i+1}`} style={{ width: "100%", borderRadius: 6, height: 100, objectFit: "cover" }} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
-        ))
+          );
+        })
       )}
     </>
   );
