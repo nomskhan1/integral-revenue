@@ -1,73 +1,86 @@
-const twilio = require("twilio");
-const QRCode = require("qrcode");
-const prisma = require("../../../../lib/db");
-const { getSessionFromRequest } = require("../../../../lib/auth");
+const prisma = require("../../../../../lib/db");
+const { getSessionFromRequest } = require("../../../../../lib/auth");
 
+// POST { ticketId, phone } — sends ticket details to guest via SMS using Twilio
 async function POST(req) {
   const session = getSessionFromRequest(req);
-  if (!session) return new Response(JSON.stringify({ error: "Not signed in." }), { status: 401 });
+  if (!session) {
+    return new Response(JSON.stringify({ error: "Not signed in." }), { status: 401 });
+  }
 
   const body = await req.json();
   const { ticketId, phone } = body || {};
 
-  if (!ticketId) return new Response(JSON.stringify({ error: "Ticket ID required." }), { status: 400 });
-  if (!phone) return new Response(JSON.stringify({ error: "Phone number required." }), { status: 400 });
+  if (!ticketId || !phone) {
+    return new Response(JSON.stringify({ error: "ticketId and phone are required." }), { status: 400 });
+  }
 
-  // Validate and clean phone number
+  // Validate phone number — must have at least 10 digits
   const cleaned = phone.replace(/\D/g, "");
   if (cleaned.length < 10) {
-    return new Response(JSON.stringify({ error: "Please enter a valid 10-digit phone number." }), { status: 400 });
+    return new Response(JSON.stringify({ error: "Please enter a valid phone number." }), { status: 400 });
   }
-  const formattedPhone = cleaned.length === 10 ? `+1${cleaned}` : `+${cleaned}`;
+  const formattedPhone = `+1${cleaned.slice(-10)}`;
+
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  const fromNumber = process.env.TWILIO_FROM_NUMBER;
+
+  if (!accountSid || !authToken || !fromNumber) {
+    return new Response(JSON.stringify({ error: "SMS is not configured. Ask your admin to set up Twilio." }), { status: 500 });
+  }
 
   const ticket = await prisma.ticket.findUnique({
     where: { id: ticketId },
     include: { garage: { select: { name: true } } },
   });
-  if (!ticket) return new Response(JSON.stringify({ error: "Ticket not found." }), { status: 404 });
 
-  // Check Twilio credentials are configured
-  const accountSid = process.env.TWILIO_ACCOUNT_SID;
-  const authToken = process.env.TWILIO_AUTH_TOKEN;
-  const fromPhone = process.env.TWILIO_PHONE_NUMBER;
-
-  if (!accountSid || !authToken || !fromPhone) {
-    return new Response(JSON.stringify({ error: "SMS is not configured. Please contact your Admin." }), { status: 500 });
+  if (!ticket) {
+    return new Response(JSON.stringify({ error: "Ticket not found." }), { status: 404 });
   }
 
-  try {
-    // Generate QR code as a data URL (we'll include ticket info in the message)
-    const checkIn = new Date(ticket.checkInTime).toLocaleString("en-US", {
-      month: "short", day: "numeric", year: "numeric",
-      hour: "numeric", minute: "2-digit", hour12: true,
-    });
+  // Build the SMS message
+  const vehicleDesc = [ticket.color, ticket.make, ticket.model]
+    .filter(Boolean)
+    .join(" ") || "Vehicle";
 
-    const garageName = ticket.garage?.name || "Garage";
-    const plate = ticket.licensePlate ? ` · ${ticket.licensePlate}` : "";
+  const checkInTime = new Date(ticket.checkInTime).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "America/Chicago",
+  });
 
-    const message =
-      `${garageName} Parking\n` +
-      `Ticket #${ticket.ticketNumber}${plate}\n` +
-      `Checked in: ${checkIn}\n\n` +
-      `Show this code at checkout:\n` +
-      `${ticket.qrToken}\n\n` +
-      `Your attendant can also scan this at checkout. Keep this message handy.`;
+  const message = [
+    `🅿️ ${ticket.garage?.name || "Parking Garage"}`,
+    `Ticket #${ticket.ticketNumber}`,
+    `Vehicle: ${vehicleDesc}`,
+    `Checked in: ${checkInTime}`,
+    `Please keep this ticket for checkout.`,
+  ].join("\n");
 
-    const client = twilio(accountSid, authToken);
-    await client.messages.create({
-      body: message,
-      from: fromPhone,
-      to: formattedPhone,
-    });
+  // Send via Twilio REST API (no SDK needed)
+  const twilioUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
+  const twilioRes = await fetch(twilioUrl, {
+    method: "POST",
+    headers: {
+      "Authorization": `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({
+      From: fromNumber,
+      To: formattedPhone,
+      Body: message,
+    }),
+  });
 
-    return new Response(JSON.stringify({ ok: true }), { status: 200 });
-  } catch (err) {
-    console.error("[sms]", err);
-    const msg = err.message?.includes("unverified")
-      ? "On a Twilio trial, you can only text verified numbers. Upgrade your Twilio account to text any number."
-      : err.message || "Failed to send SMS.";
-    return new Response(JSON.stringify({ error: msg }), { status: 500 });
+  const twilioData = await twilioRes.json();
+
+  if (!twilioRes.ok || twilioData.error_code) {
+    const errMsg = twilioData.message || "Failed to send SMS.";
+    return new Response(JSON.stringify({ error: errMsg }), { status: 500 });
   }
+
+  return new Response(JSON.stringify({ ok: true, sid: twilioData.sid }), { status: 200 });
 }
 
 module.exports = { POST };
