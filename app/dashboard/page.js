@@ -923,75 +923,67 @@ function CheckOutView() {
 
   // Launches Square POS app via deep link with amount pre-filled.
   // Works in native Android app (Capacitor wrapper) — the deep link
-  // square-commerce-v1:// is handled natively, unlike Chrome WebView.
-  // Square Reader processes the card, then returns to the app via callback.
+  // Sends payment request directly to the paired Square Terminal via
+  // Terminal API — Terminal activates automatically, no app switching needed.
   async function launchSquarePOS() {
     if (!ticket || !currentUserId) return;
     setError("");
+    setCompleting(true);
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
-    const callbackUrl = `${appUrl}/api/square/callback`;
-    const amountCents = Math.round((ticket.previewFee || 0) * 100);
-    const clientId = process.env.NEXT_PUBLIC_SQUARE_APP_ID;
+    try {
+      const res = await fetch("/api/square/charge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticketId: ticket.id }),
+      });
+      const data = await res.json();
 
-    if (!clientId) {
-      setError("Square is not configured yet. Contact your administrator.");
-      return;
-    }
-
-    if (amountCents <= 0) {
-      setError("Cannot charge $0. Please check the fee calculation.");
-      return;
-    }
-
-    const customData = `${ticket.id}|${currentUserId}`;
-
-    // Use simple flat URL parameters — more reliable than JSON data blob
-    const squareParams = new URLSearchParams();
-    squareParams.set("client_id", clientId);
-    squareParams.set("amount_money", String(amountCents));
-    squareParams.set("currency_code", "USD");
-    squareParams.set("callback_url", callbackUrl);
-    squareParams.set("notes", customData);
-
-    const squareUrl = `square-commerce-v1://payment/create?${squareParams.toString()}`;
-
-    // Try multiple approaches to open the Square URL scheme
-    const isNative = window.Capacitor && window.Capacitor.isNativePlatform();
-    
-    if (isNative) {
-      // Method 1: Try Capacitor App plugin
-      try {
-        await window.Capacitor.Plugins.App.openUrl({ url: squareUrl });
+      if (!res.ok) {
+        setError(data.error || "Failed to start payment. Make sure the Terminal is on and connected.");
+        setCompleting(false);
         return;
-      } catch (e1) {
-        console.log("App.openUrl failed:", e1);
-      }
-      
-      // Method 2: Try window.open with _system target
-      try {
-        window.open(squareUrl, "_system");
-        return;
-      } catch (e2) {
-        console.log("window.open _system failed:", e2);
       }
 
-      // Method 3: Create and click an anchor
-      try {
-        const a = document.createElement("a");
-        a.href = squareUrl;
-        a.target = "_system";
-        document.body.appendChild(a);
-        a.click();
-        setTimeout(() => document.body.removeChild(a), 500);
-        return;
-      } catch (e3) {
-        console.log("anchor click failed:", e3);
-      }
-    }
+      const { checkoutId, ticketNumber, amount } = data;
 
-    // Web fallback
-    window.location.href = squareUrl;
+      // Poll Square every 3 seconds until payment completes or is cancelled
+      const pollInterval = setInterval(async () => {
+        try {
+          const statusRes = await fetch(`/api/square/status?checkoutId=${checkoutId}&ticketId=${ticket.id}`);
+          const statusData = await statusRes.json();
+
+          if (statusData.status === "COMPLETED") {
+            clearInterval(pollInterval);
+            setCompleting(false);
+            setCompleted({
+              ticketNumber: statusData.ticketNumber || ticketNumber,
+              feeAmount: statusData.feeAmount || amount,
+              paymentMethod: "CREDIT_CARD",
+              _squarePaid: true,
+            });
+          } else if (statusData.status === "CANCELLED") {
+            clearInterval(pollInterval);
+            setCompleting(false);
+            setError("Payment was cancelled on the Terminal. Please try again.");
+          }
+        } catch {
+          // Network hiccup during poll — keep trying
+        }
+      }, 3000);
+
+      // Timeout after 3 minutes
+      setTimeout(() => {
+        clearInterval(pollInterval);
+        setCompleting((prev) => {
+          if (prev) setError("Payment timed out. Please check the Terminal and try again.");
+          return false;
+        });
+      }, 180000);
+
+    } catch {
+      setError("Network error. Please try again.");
+      setCompleting(false);
+    }
   }
 
   async function completeCheckout() {
@@ -1273,8 +1265,8 @@ function CheckOutView() {
         </div>
 
         {paymentMethod === "CREDIT_CARD" ? (
-          <button className="btn btn-primary" disabled={!paymentMethod} onClick={launchSquarePOS}>
-            💳 Charge card — {money(displayedFee)}
+          <button className="btn btn-primary" disabled={completing || !paymentMethod} onClick={launchSquarePOS}>
+            {completing ? "Waiting for Terminal..." : `💳 Charge card — ${money(displayedFee)}`}
           </button>
         ) : (
           <button
