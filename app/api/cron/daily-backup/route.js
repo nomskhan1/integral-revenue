@@ -36,7 +36,7 @@ function todayDateString() {
 }
 
 async function fetchData(dateStr) {
-  const garages = await prisma.garage.findMany({ orderBy: { name: "asc" } });
+  const garages = await prisma.garage.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, logoUrl: true } });
 
   // Load all admins who have garage assignments AND a report email set —
   // those are the ones who should receive per-garage reports.
@@ -48,7 +48,7 @@ async function fetchData(dateStr) {
     },
     include: {
       adminGarages: {
-        include: { garage: { select: { id: true, name: true } } },
+        include: { garage: { select: { id: true, name: true, logoUrl: true } } },
       },
     },
   });
@@ -220,6 +220,72 @@ async function buildPdf(dateStr, summary, tickets) {
   return Buffer.from(pdfBytes);
 }
 
+// Builds a branded HTML email body with the garage logo and summary.
+function buildEmailHtml({ adminName, garageNames, dateStr, grandGross, logoUrl, logoAlt }) {
+  const logoHtml = logoUrl
+    ? `<img src="${logoUrl}" alt="${logoAlt}" style="max-height:60px;max-width:200px;object-fit:contain;margin-bottom:16px;" /><br/>`
+    : "";
+
+  return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"/></head>
+<body style="margin:0;padding:0;background:#F0EDE6;font-family:Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#F0EDE6;padding:32px 0;">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+        
+        <!-- Header -->
+        <tr><td style="background:#1B2430;padding:28px 32px;text-align:center;">
+          ${logoHtml}
+          <div style="font-family:'Arial Narrow',Arial,sans-serif;font-size:22px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#C9A227;">
+            ${garageNames}
+          </div>
+          <div style="font-size:12px;color:#8A9BB0;margin-top:6px;letter-spacing:0.1em;text-transform:uppercase;">
+            Daily Revenue Report
+          </div>
+        </td></tr>
+
+        <!-- Body -->
+        <tr><td style="padding:32px;">
+          <p style="font-size:15px;color:#374151;margin:0 0 24px;">
+            Hi ${adminName},<br/><br/>
+            Attached is today's revenue report for <strong>${garageNames}</strong>.
+          </p>
+
+          <!-- Summary box -->
+          <table width="100%" cellpadding="0" cellspacing="0" style="background:#F0EDE6;border-radius:8px;padding:20px;margin-bottom:24px;">
+            <tr>
+              <td style="font-size:12px;color:#6B7280;text-transform:uppercase;letter-spacing:0.08em;">Date</td>
+              <td style="font-size:12px;color:#6B7280;text-transform:uppercase;letter-spacing:0.08em;text-align:right;">Gross Total</td>
+            </tr>
+            <tr>
+              <td style="font-size:24px;font-weight:700;color:#1B2430;padding-top:6px;">${dateStr}</td>
+              <td style="font-size:24px;font-weight:700;color:#C9A227;padding-top:6px;text-align:right;">${money(grandGross)}</td>
+            </tr>
+          </table>
+
+          <p style="font-size:13px;color:#6B7280;margin:0;">
+            Full details are attached as Excel and PDF files.<br/>
+            This is an automated report from Integral Revenue.
+          </p>
+        </td></tr>
+
+        <!-- Footer -->
+        <tr><td style="background:#F8F7F4;padding:20px 32px;text-align:center;border-top:1px solid #E5E3DE;">
+          <p style="font-size:11px;color:#9CA3AF;margin:0;">
+            Integral Surveillance Solutions LLC &nbsp;·&nbsp; 
+            <a href="https://integralsurveillancellc.com/privacy" style="color:#9CA3AF;">Privacy</a> &nbsp;·&nbsp;
+            <a href="https://integralsurveillancellc.com/terms" style="color:#9CA3AF;">Terms</a>
+          </p>
+        </td></tr>
+
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+}
+
 async function GET(req) {
   const authHeader = req.headers.get("authorization");
   if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
@@ -250,11 +316,24 @@ async function GET(req) {
     ]);
 
     const garageNames = adminGarages.map((g) => g.name).join(", ");
+    // Get logo from first assigned garage (most admins manage one garage)
+    const firstGarage = adminGarages[0];
+    const logoUrl = firstGarage?.logoUrl || null;
+    const logoAlt = firstGarage?.name || garageNames;
+
     const result = await resend.emails.send({
       from,
       to: admin.reportEmail,
       subject: `Daily revenue report — ${dateStr} (${garageNames})`,
       text: `Hi ${admin.name},\n\nAttached is today's revenue report for your garage(s): ${garageNames}.\n\nDate: ${dateStr}\nGross total: ${money(grandGross)}\n\nThis is an automated report from Integral Revenue.`,
+      html: buildEmailHtml({
+        adminName: admin.name,
+        garageNames,
+        dateStr,
+        grandGross,
+        logoUrl,
+        logoAlt,
+      }),
       attachments: [
         {
           filename: `revenue-report-${dateStr}.xlsx`,
@@ -291,6 +370,14 @@ async function GET(req) {
       to: toAddress,
       subject: `Daily revenue backup — ${dateStr} (${money(grandGross)} across ${garages.length} garages)`,
       text: `Attached: today's revenue summary and full ticket detail, in both Excel and PDF.\n\nDate: ${dateStr}\nGarages: ${garages.length}\nGrand total (gross): ${money(grandGross)}`,
+      html: buildEmailHtml({
+        adminName: "Admin",
+        garageNames: `All Garages (${garages.length})`,
+        dateStr,
+        grandGross,
+        logoUrl: null,
+        logoAlt: "Integral Revenue",
+      }),
       attachments: [
         {
           filename: `revenue-backup-${dateStr}.xlsx`,
