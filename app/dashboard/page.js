@@ -183,9 +183,6 @@ export default function Dashboard() {
             <button className={tab === "vouchers" ? "active" : ""} onClick={() => setTab("vouchers")}>
               N/C Vouchers
             </button>
-            <button className={tab === "terminal" ? "active" : ""} onClick={() => setTab("terminal")}>
-              Terminal
-            </button>
           </div>
         )}
 
@@ -219,8 +216,6 @@ export default function Dashboard() {
         {tab === "garages" && (isAdmin || isSuperAdmin) && <GaragesView currentUser={user} />}
         {tab === "users" && (isAdmin || isSuperAdmin) && <UsersView currentUser={user} />}
 
-        {tab === "terminal" && isAdmin && <TerminalPairingView />}
-
         {showPasswordPanel && <ChangePasswordPanel onClose={() => setShowPasswordPanel(false)} />}
       </main>
       <footer className="note">
@@ -241,121 +236,6 @@ export default function Dashboard() {
 }
 
 // ---------------- CHANGE PASSWORD ----------------
-// ── Square Terminal Pairing ──────────────────────────────────────────────────
-function TerminalPairingView() {
-  const [pairingCode, setPairingCode] = useState(null);
-  const [deviceId, setDeviceId] = useState(null);
-  const [devices, setDevices] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [checking, setChecking] = useState(false);
-  const [error, setError] = useState("");
-  const [status, setStatus] = useState("");
-
-  // Load existing paired devices on mount
-  useEffect(() => {
-    fetch("/api/square/devices")
-      .then(r => r.json())
-      .then(data => {
-        setDevices(data.device_codes?.filter(c => c.status === "PAIRED") || []);
-      })
-      .catch(() => {});
-  }, []);
-
-  async function generateCode() {
-    setLoading(true);
-    setError("");
-    setPairingCode(null);
-    setStatus("");
-    try {
-      const res = await fetch("/api/square/devices", { method: "POST" });
-      const data = await res.json();
-      if (!res.ok || data.errors) {
-        setError(data.errors?.[0]?.detail || "Failed to generate code.");
-        return;
-      }
-      const code = data.device_code;
-      setPairingCode(code);
-      setStatus("Enter this code on the Square Terminal to pair it.");
-      // Poll for pairing completion
-      const poll = setInterval(async () => {
-        const r = await fetch("/api/square/devices");
-        const d = await r.json();
-        const paired = d.device_codes?.find(c => c.id === code.id && c.status === "PAIRED");
-        if (paired) {
-          clearInterval(poll);
-          setDeviceId(paired.device_id);
-          setDevices(d.device_codes?.filter(c => c.status === "PAIRED") || []);
-          setStatus("✓ Terminal paired successfully!");
-          setPairingCode(null);
-          // Save device ID to env hint
-        }
-      }, 3000);
-      // Stop polling after 5 minutes
-      setTimeout(() => clearInterval(poll), 300000);
-    } catch {
-      setError("Network error. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <>
-      <h1 className="title">Square Terminal</h1>
-
-      {error && <div className="error-box">{error}</div>}
-
-      {devices.length > 0 && (
-        <div style={{ marginBottom: 24 }}>
-          <div className="hero-line">Paired terminals</div>
-          {devices.map((d) => (
-            <div key={d.id} className="list-row">
-              <span>{d.name || "Integral Revenue Terminal"}</span>
-              <span style={{ fontSize: 12, color: "var(--slate2)" }}>
-                Device ID: {d.device_id}
-              </span>
-            </div>
-          ))}
-          {deviceId && (
-            <div className="success-box" style={{ marginTop: 12 }}>
-              ✓ Terminal paired! Add this to your Vercel env vars:<br />
-              <code style={{ fontSize: 12 }}>SQUARE_TERMINAL_DEVICE_ID={deviceId}</code>
-            </div>
-          )}
-        </div>
-      )}
-
-      {pairingCode ? (
-        <div className="stub" style={{ textAlign: "center" }}>
-          <div className="stub-num-label" style={{ marginBottom: 8 }}>Enter this code on the Square Terminal</div>
-          <div style={{ fontFamily: "monospace", fontSize: 48, fontWeight: 700, letterSpacing: "0.2em", color: "var(--brass)", marginBottom: 12 }}>
-            {pairingCode.code}
-          </div>
-          <div style={{ fontSize: 13, color: "var(--slate2)", marginBottom: 8 }}>{status}</div>
-          <div style={{ fontSize: 12, color: "var(--slate2)" }}>
-            Expires: {new Date(pairingCode.pair_by).toLocaleTimeString()}
-          </div>
-          <div style={{ marginTop: 16, fontSize: 13, color: "var(--slate2)" }}>
-            Waiting for Terminal to confirm pairing…
-          </div>
-        </div>
-      ) : (
-        <div>
-          <p style={{ fontSize: 14, color: "var(--slate2)", marginBottom: 20 }}>
-            Pair your Square Terminal with Integral Revenue so payments can be sent directly to the Terminal at checkout — no app switching needed.
-          </p>
-          <p style={{ fontSize: 13, color: "var(--slate2)", marginBottom: 20 }}>
-            <strong>On the Square Terminal:</strong> Go to Settings → General → Device Code (or wait for the prompt after tapping "Use Device Code" on the sign-in screen).
-          </p>
-          <button className="btn btn-primary" onClick={generateCode} disabled={loading}>
-            {loading ? "Generating…" : "Generate Pairing Code"}
-          </button>
-        </div>
-      )}
-    </>
-  );
-}
-
 function ChangePasswordPanel({ onClose }) {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -443,6 +323,40 @@ function CheckInView() {
   const cameraInputRef = useRef(null);
   const galleryInputRef = useRef(null);
 
+  // Pre-existing damage
+  const [damagePhotoUrl, setDamagePhotoUrl] = useState(null);
+  const [damagePhotoPreview, setDamagePhotoPreview] = useState(null);
+  const [damagePhotoUploading, setDamagePhotoUploading] = useState(false);
+  const [damageTypes, setDamageTypes] = useState([]);
+  const damageCameraRef = useRef(null);
+  const damageGalleryRef = useRef(null);
+
+  const DAMAGE_OPTIONS = ["Scratch", "Dent", "Crack", "Missing part", "Paint chip", "Broken light", "Other"];
+
+  function toggleDamage(type) {
+    setDamageTypes(prev =>
+      prev.includes(type) ? prev.filter(d => d !== type) : [...prev, type]
+    );
+  }
+
+  async function handleDamagePhotoSelect(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setDamagePhotoUploading(true);
+    try {
+      const dataUrl = await resizeImageFile(file);
+      setDamagePhotoPreview(dataUrl);
+      const res = await fetch("/api/tickets/upload-photo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageBase64: dataUrl }),
+      });
+      const data = await res.json();
+      if (res.ok) setDamagePhotoUrl(data.url);
+    } catch {}
+    finally { setDamagePhotoUploading(false); }
+  }
+
   function resizeImageFile(file, maxDimension = 1024, quality = 0.75) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -520,7 +434,7 @@ function CheckInView() {
     e.preventDefault();
     setError("");
     setSaving(true);
-    const body = { apartmentNumber, vehicleMake, vehicleModel, vehicleColor, licensePlate, parkingLocation, photoUrl: vehiclePhotoUrl };
+    const body = { apartmentNumber, vehicleMake, vehicleModel, vehicleColor, licensePlate, parkingLocation, photoUrl: vehiclePhotoUrl, damagePhotoUrl: damagePhotoUrl || null, damageTypes: damageTypes.length > 0 ? damageTypes.join(", ") : null };
     const res = await fetch("/api/tickets", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -537,6 +451,7 @@ function CheckInView() {
     setApartmentNumber(""); setVehicleMake(""); setVehicleModel("");
     setVehicleColor(""); setLicensePlate(""); setParkingLocation("");
     setScanNotice(""); setVehiclePhotoUrl(null); setPhotoPreview(null);
+    setDamagePhotoUrl(null); setDamagePhotoPreview(null); setDamageTypes([]);
   }
 
   async function sendSms(ticketId, phone) {
@@ -621,6 +536,13 @@ function CheckInView() {
                 <div className="pt-row"><span>Vehicle</span><span>{[ticket.vehicleColor, ticket.vehicleMake, ticket.vehicleModel].filter(Boolean).join(" ")}</span></div>
               )}
               {ticket.parkingLocation && <div className="pt-row"><span>Location</span><span>{ticket.parkingLocation}</span></div>}
+          {ticket.damageTypes && <div className="pt-row"><span>Damage noted</span><span style={{ color: "var(--red)", fontWeight: 600 }}>{ticket.damageTypes}</span></div>}
+          {ticket.damagePhotoUrl && (
+            <div style={{ marginTop: 10 }}>
+              <div style={{ fontSize: 11, color: "var(--slate2)", marginBottom: 6 }}>Damage photo</div>
+              <img src={ticket.damagePhotoUrl} alt="Pre-existing damage" style={{ width: "100%", borderRadius: 8, maxHeight: 160, objectFit: "cover" }} />
+            </div>
+          )}
               {ticket.photoUrl && (
                 <div className="pt-center" style={{ marginTop: "4mm" }}>
                   <img src={ticket.photoUrl} alt="" style={{ width: "100%", maxHeight: "60mm", objectFit: "cover" }} />
@@ -713,6 +635,39 @@ function CheckInView() {
             inputMode="tel"
           />
           <div className="field-hint">If provided, we'll offer to text them their ticket QR code after check-in.</div>
+        </div>
+
+        {/* Pre-existing damage */}
+        <div style={{ background: "var(--navy-2)", borderRadius: 10, padding: "16px 18px", marginBottom: 16 }}>
+          <div style={{ fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--slate2)", marginBottom: 12 }}>
+            Pre-existing damage (optional)
+          </div>
+
+          {/* Damage type checkboxes */}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
+            {DAMAGE_OPTIONS.map((type) => (
+              <label key={type} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13, background: damageTypes.includes(type) ? "rgba(201,162,39,0.15)" : "var(--navy)", border: `1px solid ${damageTypes.includes(type) ? "var(--brass)" : "var(--line)"}`, borderRadius: 6, padding: "6px 10px", color: damageTypes.includes(type) ? "var(--brass-light)" : "var(--cream)" }}>
+                <input type="checkbox" checked={damageTypes.includes(type)} onChange={() => toggleDamage(type)} style={{ width: "auto" }} />
+                {type}
+              </label>
+            ))}
+          </div>
+
+          {/* Damage photo */}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button type="button" className="btn btn-ghost" style={{ flex: 1, fontSize: 13, padding: "10px" }} onClick={() => damageCameraRef.current?.click()}>
+              📷 Take damage photo
+            </button>
+            <button type="button" className="btn btn-ghost" style={{ flex: 1, fontSize: 13, padding: "10px" }} onClick={() => damageGalleryRef.current?.click()}>
+              🖼️ Choose photo
+            </button>
+          </div>
+          <input ref={damageCameraRef} type="file" accept="image/*" capture="environment" onChange={handleDamagePhotoSelect} style={{ display: "none" }} />
+          <input ref={damageGalleryRef} type="file" accept="image/*" onChange={handleDamagePhotoSelect} style={{ display: "none" }} />
+          {damagePhotoUploading && <div style={{ fontSize: 12, color: "var(--slate2)", marginTop: 8 }}>Uploading...</div>}
+          {damagePhotoPreview && !damagePhotoUploading && (
+            <img src={damagePhotoPreview} alt="Damage" style={{ marginTop: 10, width: "100%", borderRadius: 8, maxHeight: 180, objectFit: "cover" }} />
+          )}
         </div>
         <button className="btn btn-primary" type="submit" disabled={saving}>
           {saving ? "Checking in..." : "Check in & generate ticket"}
@@ -923,67 +878,75 @@ function CheckOutView() {
 
   // Launches Square POS app via deep link with amount pre-filled.
   // Works in native Android app (Capacitor wrapper) — the deep link
-  // Sends payment request directly to the paired Square Terminal via
-  // Terminal API — Terminal activates automatically, no app switching needed.
+  // square-commerce-v1:// is handled natively, unlike Chrome WebView.
+  // Square Reader processes the card, then returns to the app via callback.
   async function launchSquarePOS() {
     if (!ticket || !currentUserId) return;
     setError("");
-    setCompleting(true);
 
-    try {
-      const res = await fetch("/api/square/charge", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ticketId: ticket.id }),
-      });
-      const data = await res.json();
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
+    const callbackUrl = `${appUrl}/api/square/callback`;
+    const amountCents = Math.round((ticket.previewFee || 0) * 100);
+    const clientId = process.env.NEXT_PUBLIC_SQUARE_APP_ID;
 
-      if (!res.ok) {
-        setError(data.error || "Failed to start payment. Make sure the Terminal is on and connected.");
-        setCompleting(false);
+    if (!clientId) {
+      setError("Square is not configured yet. Contact your administrator.");
+      return;
+    }
+
+    if (amountCents <= 0) {
+      setError("Cannot charge $0. Please check the fee calculation.");
+      return;
+    }
+
+    const customData = `${ticket.id}|${currentUserId}`;
+
+    // Use simple flat URL parameters — more reliable than JSON data blob
+    const squareParams = new URLSearchParams();
+    squareParams.set("client_id", clientId);
+    squareParams.set("amount_money", String(amountCents));
+    squareParams.set("currency_code", "USD");
+    squareParams.set("callback_url", callbackUrl);
+    squareParams.set("notes", customData);
+
+    const squareUrl = `square-commerce-v1://payment/create?${squareParams.toString()}`;
+
+    // Try multiple approaches to open the Square URL scheme
+    const isNative = window.Capacitor && window.Capacitor.isNativePlatform();
+    
+    if (isNative) {
+      // Method 1: Try Capacitor App plugin
+      try {
+        await window.Capacitor.Plugins.App.openUrl({ url: squareUrl });
         return;
+      } catch (e1) {
+        console.log("App.openUrl failed:", e1);
+      }
+      
+      // Method 2: Try window.open with _system target
+      try {
+        window.open(squareUrl, "_system");
+        return;
+      } catch (e2) {
+        console.log("window.open _system failed:", e2);
       }
 
-      const { checkoutId, ticketNumber, amount } = data;
-
-      // Poll Square every 3 seconds until payment completes or is cancelled
-      const pollInterval = setInterval(async () => {
-        try {
-          const statusRes = await fetch(`/api/square/status?checkoutId=${checkoutId}&ticketId=${ticket.id}`);
-          const statusData = await statusRes.json();
-
-          if (statusData.status === "COMPLETED") {
-            clearInterval(pollInterval);
-            setCompleting(false);
-            setCompleted({
-              ticketNumber: statusData.ticketNumber || ticketNumber,
-              feeAmount: statusData.feeAmount || amount,
-              paymentMethod: "CREDIT_CARD",
-              _squarePaid: true,
-            });
-          } else if (statusData.status === "CANCELLED") {
-            clearInterval(pollInterval);
-            setCompleting(false);
-            setError("Payment was cancelled on the Terminal. Please try again.");
-          }
-        } catch {
-          // Network hiccup during poll — keep trying
-        }
-      }, 3000);
-
-      // Timeout after 3 minutes
-      setTimeout(() => {
-        clearInterval(pollInterval);
-        setCompleting((prev) => {
-          if (prev) setError("Payment timed out. Please check the Terminal and try again.");
-          return false;
-        });
-      }, 180000);
-
-    } catch {
-      setError("Network error. Please try again.");
-      setCompleting(false);
+      // Method 3: Create and click an anchor
+      try {
+        const a = document.createElement("a");
+        a.href = squareUrl;
+        a.target = "_system";
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => document.body.removeChild(a), 500);
+        return;
+      } catch (e3) {
+        console.log("anchor click failed:", e3);
+      }
     }
+
+    // Web fallback
+    window.location.href = squareUrl;
   }
 
   async function completeCheckout() {
@@ -1265,8 +1228,8 @@ function CheckOutView() {
         </div>
 
         {paymentMethod === "CREDIT_CARD" ? (
-          <button className="btn btn-primary" disabled={completing || !paymentMethod} onClick={launchSquarePOS}>
-            {completing ? "Waiting for Terminal..." : `💳 Charge card — ${money(displayedFee)}`}
+          <button className="btn btn-primary" disabled={!paymentMethod} onClick={launchSquarePOS}>
+            💳 Charge card — {money(displayedFee)}
           </button>
         ) : (
           <button
@@ -1621,6 +1584,18 @@ function TicketHistoryView({ user, showGarageFilter, logoUrl, companyName }) {
           {viewing.parkingLocation && (
             <div className="list-row" style={{ borderBottom: "none", padding: "4px 0" }}>
               <span style={{ color: "var(--slate2)" }}>Location</span><span>{viewing.parkingLocation}</span>
+            </div>
+          )}
+          {viewing.damageTypes && (
+            <div className="list-row" style={{ borderBottom: "none", padding: "4px 0" }}>
+              <span style={{ color: "var(--slate2)" }}>Pre-existing damage</span>
+              <span style={{ color: "var(--red)", fontWeight: 600 }}>{viewing.damageTypes}</span>
+            </div>
+          )}
+          {viewing.damagePhotoUrl && (
+            <div style={{ marginTop: 8 }}>
+              <div style={{ fontSize: 11, color: "var(--slate2)", marginBottom: 6 }}>Damage photo</div>
+              <img src={viewing.damagePhotoUrl} alt="Pre-existing damage" style={{ width: "100%", borderRadius: 8, maxHeight: 160, objectFit: "cover" }} />
             </div>
           )}
           {viewing.checkedInBy && (

@@ -211,6 +211,9 @@ model Ticket {
   parkingLocation String?
   // Photo of the vehicle/plate taken at check-in, stored in Vercel Blob.
   photoUrl        String?
+  // Pre-existing damage documentation captured at check-in.
+  damagePhotoUrl  String?
+  damageTypes     String?
 
   // Computed at checkout.
   durationMinutes Int?

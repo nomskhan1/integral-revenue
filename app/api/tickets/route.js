@@ -73,7 +73,7 @@ async function POST(req) {
   }
 
   const body = await req.json();
-  const { apartmentNumber, vehicleMake, vehicleModel, vehicleColor, licensePlate, parkingLocation, photoUrl } = body || {};
+  const { apartmentNumber, vehicleMake, vehicleModel, vehicleColor, licensePlate, parkingLocation, photoUrl, damagePhotoUrl, damageTypes } = body || {};
 
   // Generate the next sequential ticket number for this garage. Simple and
   // human-readable (e.g. "0042") — uniqueness is enforced at the database
@@ -104,6 +104,8 @@ async function POST(req) {
         licensePlate: licensePlate || null,
         parkingLocation: parkingLocation || null,
         photoUrl: photoUrl || null,
+        damagePhotoUrl: damagePhotoUrl || null,
+        damageTypes: damageTypes || null,
         checkedInById: session.id,
       },
       include: { garage: { select: { name: true } } },
