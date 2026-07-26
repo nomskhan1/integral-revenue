@@ -2,9 +2,17 @@ const prisma = require("../../../../lib/db");
 const { getSessionFromRequest } = require("../../../../lib/auth");
 const { calculateFee } = require("../../../../lib/pricing");
 
-// POST { ticketId } — creates a Square Terminal checkout request that
-// sends the payment directly to the paired Square Reader on the device.
-// No app switching needed — Square activates the Reader automatically.
+function todayStr() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+const METHOD_TO_REVENUE = {
+  CREDIT_CARD: "creditCardRevenue",
+};
+
+// POST { ticketId } — sends a payment request directly to the paired
+// Square Terminal via Terminal API. The Terminal activates automatically,
+// customer taps/chips their card, approval comes back to the status endpoint.
 async function POST(req) {
   const session = getSessionFromRequest(req);
   if (!session) {
@@ -15,6 +23,20 @@ async function POST(req) {
   const { ticketId } = body || {};
   if (!ticketId) {
     return new Response(JSON.stringify({ error: "ticketId is required." }), { status: 400 });
+  }
+
+  const accessToken = process.env.SQUARE_ACCESS_TOKEN;
+  const locationId = process.env.SQUARE_LOCATION_ID;
+  const deviceId = process.env.SQUARE_TERMINAL_DEVICE_ID;
+
+  if (!accessToken || !locationId) {
+    return new Response(JSON.stringify({ error: "Square is not configured." }), { status: 500 });
+  }
+
+  if (!deviceId) {
+    return new Response(JSON.stringify({ 
+      error: "Square Terminal not paired yet. Ask your Admin to go to Admin → Terminal tab to pair the device." 
+    }), { status: 500 });
   }
 
   const ticket = await prisma.ticket.findUnique({
@@ -33,15 +55,10 @@ async function POST(req) {
   const { feeAmount } = await calculateFee(ticket.garage, durationMinutes);
   const amountCents = Math.round(feeAmount * 100);
 
-  const accessToken = process.env.SQUARE_ACCESS_TOKEN;
-  const locationId = process.env.SQUARE_LOCATION_ID;
-
-  if (!accessToken || !locationId) {
-    return new Response(JSON.stringify({ error: "Square is not configured." }), { status: 500 });
+  if (amountCents <= 0) {
+    return new Response(JSON.stringify({ error: "Fee is $0 — use N/C or another payment method instead." }), { status: 400 });
   }
 
-  // Create a Square Terminal checkout — this sends the payment request
-  // directly to the paired Square Reader via Square's cloud.
   const idempotencyKey = `ticket-${ticketId}-${Date.now()}`;
 
   const squareRes = await fetch("https://connect.squareup.com/v2/terminals/checkouts", {
@@ -61,7 +78,7 @@ async function POST(req) {
         reference_id: ticketId,
         note: `Parking ticket #${ticket.ticketNumber}`,
         device_options: {
-          device_id: "SELF_PAIRED_ROOT", // Uses the paired device on same network
+          device_id: deviceId,
           skip_receipt_screen: false,
           collect_signature: false,
           tip_settings: {
@@ -77,16 +94,16 @@ async function POST(req) {
   const squareData = await squareRes.json();
 
   if (!squareRes.ok || squareData.errors) {
-    const errMsg = squareData.errors?.[0]?.detail || "Square API error";
+    const errMsg = squareData.errors?.[0]?.detail || "Square Terminal error. Make sure the Terminal is on and connected.";
     return new Response(JSON.stringify({ error: errMsg }), { status: 500 });
   }
 
   const checkoutId = squareData.checkout?.id;
 
-  // Store the checkout ID on the ticket so we can poll for status
+  // Store the checkout ID so we can poll for status
   await prisma.ticket.update({
     where: { id: ticketId },
-    data: { paymentNote: `Square checkout: ${checkoutId}` },
+    data: { paymentNote: `Square Terminal checkout: ${checkoutId}` },
   });
 
   return new Response(JSON.stringify({
@@ -94,6 +111,7 @@ async function POST(req) {
     checkoutId,
     amount: feeAmount,
     ticketNumber: ticket.ticketNumber,
+    employeeId: session.id,
   }), { status: 200 });
 }
 
