@@ -183,6 +183,9 @@ export default function Dashboard() {
             <button className={tab === "vouchers" ? "active" : ""} onClick={() => setTab("vouchers")}>
               N/C Vouchers
             </button>
+            <button className={tab === "terminal" ? "active" : ""} onClick={() => setTab("terminal")}>
+              Terminal
+            </button>
           </div>
         )}
 
@@ -216,6 +219,8 @@ export default function Dashboard() {
         {tab === "garages" && (isAdmin || isSuperAdmin) && <GaragesView currentUser={user} />}
         {tab === "users" && (isAdmin || isSuperAdmin) && <UsersView currentUser={user} />}
 
+        {tab === "terminal" && isAdmin && <TerminalPairingView />}
+
         {showPasswordPanel && <ChangePasswordPanel onClose={() => setShowPasswordPanel(false)} />}
       </main>
       <footer className="note">
@@ -236,6 +241,121 @@ export default function Dashboard() {
 }
 
 // ---------------- CHANGE PASSWORD ----------------
+// ── Square Terminal Pairing ──────────────────────────────────────────────────
+function TerminalPairingView() {
+  const [pairingCode, setPairingCode] = useState(null);
+  const [deviceId, setDeviceId] = useState(null);
+  const [devices, setDevices] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [error, setError] = useState("");
+  const [status, setStatus] = useState("");
+
+  // Load existing paired devices on mount
+  useEffect(() => {
+    fetch("/api/square/devices")
+      .then(r => r.json())
+      .then(data => {
+        setDevices(data.device_codes?.filter(c => c.status === "PAIRED") || []);
+      })
+      .catch(() => {});
+  }, []);
+
+  async function generateCode() {
+    setLoading(true);
+    setError("");
+    setPairingCode(null);
+    setStatus("");
+    try {
+      const res = await fetch("/api/square/devices", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok || data.errors) {
+        setError(data.errors?.[0]?.detail || "Failed to generate code.");
+        return;
+      }
+      const code = data.device_code;
+      setPairingCode(code);
+      setStatus("Enter this code on the Square Terminal to pair it.");
+      // Poll for pairing completion
+      const poll = setInterval(async () => {
+        const r = await fetch("/api/square/devices");
+        const d = await r.json();
+        const paired = d.device_codes?.find(c => c.id === code.id && c.status === "PAIRED");
+        if (paired) {
+          clearInterval(poll);
+          setDeviceId(paired.device_id);
+          setDevices(d.device_codes?.filter(c => c.status === "PAIRED") || []);
+          setStatus("✓ Terminal paired successfully!");
+          setPairingCode(null);
+          // Save device ID to env hint
+        }
+      }, 3000);
+      // Stop polling after 5 minutes
+      setTimeout(() => clearInterval(poll), 300000);
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <>
+      <h1 className="title">Square Terminal</h1>
+
+      {error && <div className="error-box">{error}</div>}
+
+      {devices.length > 0 && (
+        <div style={{ marginBottom: 24 }}>
+          <div className="hero-line">Paired terminals</div>
+          {devices.map((d) => (
+            <div key={d.id} className="list-row">
+              <span>{d.name || "Integral Revenue Terminal"}</span>
+              <span style={{ fontSize: 12, color: "var(--slate2)" }}>
+                Device ID: {d.device_id}
+              </span>
+            </div>
+          ))}
+          {deviceId && (
+            <div className="success-box" style={{ marginTop: 12 }}>
+              ✓ Terminal paired! Add this to your Vercel env vars:<br />
+              <code style={{ fontSize: 12 }}>SQUARE_TERMINAL_DEVICE_ID={deviceId}</code>
+            </div>
+          )}
+        </div>
+      )}
+
+      {pairingCode ? (
+        <div className="stub" style={{ textAlign: "center" }}>
+          <div className="stub-num-label" style={{ marginBottom: 8 }}>Enter this code on the Square Terminal</div>
+          <div style={{ fontFamily: "monospace", fontSize: 48, fontWeight: 700, letterSpacing: "0.2em", color: "var(--brass)", marginBottom: 12 }}>
+            {pairingCode.code}
+          </div>
+          <div style={{ fontSize: 13, color: "var(--slate2)", marginBottom: 8 }}>{status}</div>
+          <div style={{ fontSize: 12, color: "var(--slate2)" }}>
+            Expires: {new Date(pairingCode.pair_by).toLocaleTimeString()}
+          </div>
+          <div style={{ marginTop: 16, fontSize: 13, color: "var(--slate2)" }}>
+            Waiting for Terminal to confirm pairing…
+          </div>
+        </div>
+      ) : (
+        <div>
+          <p style={{ fontSize: 14, color: "var(--slate2)", marginBottom: 20 }}>
+            Pair your Square Terminal with Integral Revenue so payments can be sent directly to the Terminal at checkout — no app switching needed.
+          </p>
+          <p style={{ fontSize: 13, color: "var(--slate2)", marginBottom: 20 }}>
+            <strong>On the Square Terminal:</strong> Go to Settings → General → Device Code (or wait for the prompt after tapping "Use Device Code" on the sign-in screen).
+          </p>
+          <button className="btn btn-primary" onClick={generateCode} disabled={loading}>
+            {loading ? "Generating…" : "Generate Pairing Code"}
+          </button>
+        </div>
+      )}
+    </>
+  );
+}
+
 function ChangePasswordPanel({ onClose }) {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
