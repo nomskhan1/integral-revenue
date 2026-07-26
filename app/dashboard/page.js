@@ -330,6 +330,7 @@ function CheckInView() {
   const [damageTypes, setDamageTypes] = useState([]);
   const damageCameraRef = useRef(null);
   const damageGalleryRef = useRef(null);
+  const damagePhotoUrlsRef = useRef([]); // always in sync, avoids stale closure
 
   const DAMAGE_OPTIONS = ["Scratch", "Dent", "Crack", "Missing part", "Paint chip", "Broken light", "Other"];
 
@@ -353,7 +354,10 @@ function CheckInView() {
           body: JSON.stringify({ imageBase64: dataUrl }),
         });
         const data = await res.json();
-        if (res.ok) setDamagePhotoUrls(prev => [...prev, data.url]);
+        if (res.ok) {
+          setDamagePhotoUrls(prev => [...prev, data.url]);
+          damagePhotoUrlsRef.current = [...damagePhotoUrlsRef.current, data.url];
+        }
       }
     } catch {}
     finally {
@@ -365,6 +369,7 @@ function CheckInView() {
   function removeDamagePhoto(index) {
     setDamagePhotoPreviews(prev => prev.filter((_, i) => i !== index));
     setDamagePhotoUrls(prev => prev.filter((_, i) => i !== index));
+    damagePhotoUrlsRef.current = damagePhotoUrlsRef.current.filter((_, i) => i !== index);
   }
 
   function resizeImageFile(file, maxDimension = 1024, quality = 0.75) {
@@ -444,7 +449,7 @@ function CheckInView() {
     e.preventDefault();
     setError("");
     setSaving(true);
-    const body = { apartmentNumber, vehicleMake, vehicleModel, vehicleColor, licensePlate, parkingLocation, photoUrl: vehiclePhotoUrl, damagePhotoUrl: damagePhotoUrls.length > 0 ? JSON.stringify(damagePhotoUrls) : null, damageTypes: damageTypes.length > 0 ? damageTypes.join(", ") : null };
+    const body = { apartmentNumber, vehicleMake, vehicleModel, vehicleColor, licensePlate, parkingLocation, photoUrl: vehiclePhotoUrl, damagePhotoUrl: damagePhotoUrlsRef.current.length > 0 ? JSON.stringify(damagePhotoUrlsRef.current) : null, damageTypes: damageTypes.length > 0 ? damageTypes.join(", ") : null };
     const res = await fetch("/api/tickets", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -462,6 +467,7 @@ function CheckInView() {
     setVehicleColor(""); setLicensePlate(""); setParkingLocation("");
     setScanNotice(""); setVehiclePhotoUrl(null); setPhotoPreview(null);
     setDamagePhotoUrls([]); setDamagePhotoPreviews([]); setDamageTypes([]);
+    damagePhotoUrlsRef.current = [];
   }
 
   async function sendSms(ticketId, phone) {
