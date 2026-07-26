@@ -323,9 +323,9 @@ function CheckInView() {
   const cameraInputRef = useRef(null);
   const galleryInputRef = useRef(null);
 
-  // Pre-existing damage
-  const [damagePhotoUrl, setDamagePhotoUrl] = useState(null);
-  const [damagePhotoPreview, setDamagePhotoPreview] = useState(null);
+  // Pre-existing damage — supports multiple photos
+  const [damagePhotoUrls, setDamagePhotoUrls] = useState([]);
+  const [damagePhotoPreviews, setDamagePhotoPreviews] = useState([]);
   const [damagePhotoUploading, setDamagePhotoUploading] = useState(false);
   const [damageTypes, setDamageTypes] = useState([]);
   const damageCameraRef = useRef(null);
@@ -340,21 +340,31 @@ function CheckInView() {
   }
 
   async function handleDamagePhotoSelect(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
     setDamagePhotoUploading(true);
     try {
-      const dataUrl = await resizeImageFile(file);
-      setDamagePhotoPreview(dataUrl);
-      const res = await fetch("/api/tickets/upload-photo", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageBase64: dataUrl }),
-      });
-      const data = await res.json();
-      if (res.ok) setDamagePhotoUrl(data.url);
+      for (const file of files) {
+        const dataUrl = await resizeImageFile(file);
+        setDamagePhotoPreviews(prev => [...prev, dataUrl]);
+        const res = await fetch("/api/tickets/upload-photo", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imageBase64: dataUrl }),
+        });
+        const data = await res.json();
+        if (res.ok) setDamagePhotoUrls(prev => [...prev, data.url]);
+      }
     } catch {}
-    finally { setDamagePhotoUploading(false); }
+    finally {
+      setDamagePhotoUploading(false);
+      e.target.value = "";
+    }
+  }
+
+  function removeDamagePhoto(index) {
+    setDamagePhotoPreviews(prev => prev.filter((_, i) => i !== index));
+    setDamagePhotoUrls(prev => prev.filter((_, i) => i !== index));
   }
 
   function resizeImageFile(file, maxDimension = 1024, quality = 0.75) {
@@ -434,7 +444,7 @@ function CheckInView() {
     e.preventDefault();
     setError("");
     setSaving(true);
-    const body = { apartmentNumber, vehicleMake, vehicleModel, vehicleColor, licensePlate, parkingLocation, photoUrl: vehiclePhotoUrl, damagePhotoUrl: damagePhotoUrl || null, damageTypes: damageTypes.length > 0 ? damageTypes.join(", ") : null };
+    const body = { apartmentNumber, vehicleMake, vehicleModel, vehicleColor, licensePlate, parkingLocation, photoUrl: vehiclePhotoUrl, damagePhotoUrl: damagePhotoUrls.length > 0 ? JSON.stringify(damagePhotoUrls) : null, damageTypes: damageTypes.length > 0 ? damageTypes.join(", ") : null };
     const res = await fetch("/api/tickets", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -451,7 +461,7 @@ function CheckInView() {
     setApartmentNumber(""); setVehicleMake(""); setVehicleModel("");
     setVehicleColor(""); setLicensePlate(""); setParkingLocation("");
     setScanNotice(""); setVehiclePhotoUrl(null); setPhotoPreview(null);
-    setDamagePhotoUrl(null); setDamagePhotoPreview(null); setDamageTypes([]);
+    setDamagePhotoUrls([]); setDamagePhotoPreviews([]); setDamageTypes([]);
   }
 
   async function sendSms(ticketId, phone) {
@@ -537,12 +547,18 @@ function CheckInView() {
               )}
               {ticket.parkingLocation && <div className="pt-row"><span>Location</span><span>{ticket.parkingLocation}</span></div>}
           {ticket.damageTypes && <div className="pt-row"><span>Damage noted</span><span style={{ color: "var(--red)", fontWeight: 600 }}>{ticket.damageTypes}</span></div>}
-          {ticket.damagePhotoUrl && (
-            <div style={{ marginTop: 10 }}>
-              <div style={{ fontSize: 11, color: "var(--slate2)", marginBottom: 6 }}>Damage photo</div>
-              <img src={ticket.damagePhotoUrl} alt="Pre-existing damage" style={{ width: "100%", borderRadius: 8, maxHeight: 160, objectFit: "cover" }} />
-            </div>
-          )}
+          {ticket.damagePhotoUrl && (() => {
+            let urls = [];
+            try { urls = JSON.parse(ticket.damagePhotoUrl); } catch { urls = [ticket.damagePhotoUrl]; }
+            return urls.length > 0 ? (
+              <div style={{ marginTop: 10 }}>
+                <div style={{ fontSize: 11, color: "var(--slate2)", marginBottom: 6 }}>Damage photos ({urls.length})</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                  {urls.map((url, i) => <img key={i} src={url} alt={`Damage ${i+1}`} style={{ width: "100%", borderRadius: 6, height: 80, objectFit: "cover" }} />)}
+                </div>
+              </div>
+            ) : null;
+          })()}
               {ticket.photoUrl && (
                 <div className="pt-center" style={{ marginTop: "4mm" }}>
                   <img src={ticket.photoUrl} alt="" style={{ width: "100%", maxHeight: "60mm", objectFit: "cover" }} />
@@ -656,17 +672,24 @@ function CheckInView() {
           {/* Damage photo */}
           <div style={{ display: "flex", gap: 8 }}>
             <button type="button" className="btn btn-ghost" style={{ flex: 1, fontSize: 13, padding: "10px" }} onClick={() => damageCameraRef.current?.click()}>
-              📷 Take damage photo
+              📷 Add damage photo
             </button>
             <button type="button" className="btn btn-ghost" style={{ flex: 1, fontSize: 13, padding: "10px" }} onClick={() => damageGalleryRef.current?.click()}>
-              🖼️ Choose photo
+              🖼️ Choose photos
             </button>
           </div>
           <input ref={damageCameraRef} type="file" accept="image/*" capture="environment" onChange={handleDamagePhotoSelect} style={{ display: "none" }} />
-          <input ref={damageGalleryRef} type="file" accept="image/*" onChange={handleDamagePhotoSelect} style={{ display: "none" }} />
+          <input ref={damageGalleryRef} type="file" accept="image/*" multiple onChange={handleDamagePhotoSelect} style={{ display: "none" }} />
           {damagePhotoUploading && <div style={{ fontSize: 12, color: "var(--slate2)", marginTop: 8 }}>Uploading...</div>}
-          {damagePhotoPreview && !damagePhotoUploading && (
-            <img src={damagePhotoPreview} alt="Damage" style={{ marginTop: 10, width: "100%", borderRadius: 8, maxHeight: 180, objectFit: "cover" }} />
+          {damagePhotoPreviews.length > 0 && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 10 }}>
+              {damagePhotoPreviews.map((src, i) => (
+                <div key={i} style={{ position: "relative" }}>
+                  <img src={src} alt={`Damage ${i+1}`} style={{ width: "100%", borderRadius: 8, height: 100, objectFit: "cover" }} />
+                  <button type="button" onClick={() => removeDamagePhoto(i)} style={{ position: "absolute", top: 4, right: 4, background: "rgba(0,0,0,0.6)", border: "none", borderRadius: "50%", width: 22, height: 22, color: "white", cursor: "pointer", fontSize: 12, lineHeight: "22px", padding: 0 }}>×</button>
+                </div>
+              ))}
+            </div>
           )}
         </div>
         <button className="btn btn-primary" type="submit" disabled={saving}>
@@ -1592,12 +1615,18 @@ function TicketHistoryView({ user, showGarageFilter, logoUrl, companyName }) {
               <span style={{ color: "var(--red)", fontWeight: 600 }}>{viewing.damageTypes}</span>
             </div>
           )}
-          {viewing.damagePhotoUrl && (
-            <div style={{ marginTop: 8 }}>
-              <div style={{ fontSize: 11, color: "var(--slate2)", marginBottom: 6 }}>Damage photo</div>
-              <img src={viewing.damagePhotoUrl} alt="Pre-existing damage" style={{ width: "100%", borderRadius: 8, maxHeight: 160, objectFit: "cover" }} />
-            </div>
-          )}
+          {viewing.damagePhotoUrl && (() => {
+            let urls = [];
+            try { urls = JSON.parse(viewing.damagePhotoUrl); } catch { urls = [viewing.damagePhotoUrl]; }
+            return urls.length > 0 ? (
+              <div style={{ marginTop: 8 }}>
+                <div style={{ fontSize: 11, color: "var(--slate2)", marginBottom: 6 }}>Damage photos ({urls.length})</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                  {urls.map((url, i) => <img key={i} src={url} alt={`Damage ${i+1}`} style={{ width: "100%", borderRadius: 6, height: 90, objectFit: "cover", cursor: "pointer" }} />)}
+                </div>
+              </div>
+            ) : null;
+          })()}
           {viewing.checkedInBy && (
             <div className="list-row" style={{ borderBottom: "none", padding: "4px 0" }}>
               <span style={{ color: "var(--slate2)" }}>Checked in by</span><span>{viewing.checkedInBy.name}</span>
