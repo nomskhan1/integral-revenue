@@ -165,6 +165,9 @@ export default function Dashboard() {
             <button className={tab === "revenue" ? "active" : ""} onClick={() => setTab("revenue")}>
               Revenue
             </button>
+            <button className={tab === "active" ? "active" : ""} onClick={() => setTab("active")}>
+              Active Tickets
+            </button>
             <button className={tab === "garages" ? "active" : ""} onClick={() => setTab("garages")}>
               Garages
             </button>
@@ -213,6 +216,7 @@ export default function Dashboard() {
         {tab === "branding" && (isAdmin || isSuperAdmin) && <BrandingView settings={appSettings} onSaved={setAppSettings} />}
         {tab === "vouchers" && (isAdmin || user.role === "GARAGE_MANAGER") && <VouchersView user={user} isAdmin={isAdmin} />}
         {tab === "revenue" && isAdmin && <RevenueDashboard user={user} />}
+        {tab === "active" && isAdmin && <AdminActiveTicketsView user={user} />}
         {tab === "garages" && (isAdmin || isSuperAdmin) && <GaragesView currentUser={user} />}
         {tab === "users" && (isAdmin || isSuperAdmin) && <UsersView currentUser={user} />}
 
@@ -3757,6 +3761,123 @@ function BrandingView({ settings, onSaved }) {
           />
         ))}
       </div>
+    </>
+  );
+}
+
+// Admin view of active tickets across all garages with garage filter
+function AdminActiveTicketsView({ user }) {
+  const [tickets, setTickets] = useState([]);
+  const [garages, setGarages] = useState([]);
+  const [garageFilter, setGarageFilter] = useState("ALL");
+  const [expandedId, setExpandedId] = useState(null);
+  const [zoomedPhoto, setZoomedPhoto] = useState(null);
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    const [ticketsRes, garagesRes] = await Promise.all([
+      fetch("/api/tickets?status=PARKED"),
+      fetch("/api/garages"),
+    ]);
+    if (ticketsRes.ok) setTickets(await ticketsRes.json());
+    if (garagesRes.ok) setGarages(await garagesRes.json());
+  }, []);
+
+  useEffect(() => { load(); const id = setInterval(load, 15000); return () => clearInterval(id); }, [load]);
+
+  const filtered = garageFilter === "ALL"
+    ? tickets
+    : tickets.filter(t => t.garageId === garageFilter);
+
+  async function cancelTicket(id) {
+    const res = await fetch(`/api/tickets/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "cancel" }) });
+    if (res.ok) load();
+  }
+
+  return (
+    <>
+      <div className="queue-header">
+        <h1 className="title">Active Tickets</h1>
+        <span className="count-badge">{filtered.length} parked</span>
+      </div>
+
+      {error && <div className="error-box">{error}</div>}
+
+      <div className="field" style={{ marginBottom: 20 }}>
+        <label>Filter by garage</label>
+        <select value={garageFilter} onChange={e => setGarageFilter(e.target.value)}>
+          <option value="ALL">All garages ({tickets.length} total)</option>
+          {garages.map(g => (
+            <option key={g.id} value={g.id}>
+              {g.name} ({tickets.filter(t => t.garageId === g.id).length} parked)
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="empty-state"><div className="big">No active tickets</div><p>No vehicles currently parked{garageFilter !== "ALL" ? " in this garage" : ""}.</p></div>
+      ) : (
+        filtered.map(t => {
+          const isExpanded = expandedId === t.id;
+          let damageUrls = [];
+          if (t.damagePhotoUrl) { try { damageUrls = JSON.parse(t.damagePhotoUrl); } catch { damageUrls = [t.damagePhotoUrl]; } }
+          return (
+            <div key={t.id} style={{ borderBottom: "1px solid var(--line)", marginBottom: 0 }}>
+              <div className="list-row" style={{ display: "flex", justifyContent: "space-between", borderBottom: "none", cursor: "pointer" }} onClick={() => setExpandedId(isExpanded ? null : t.id)}>
+                <div>
+                  <div style={{ fontWeight: 600 }}>
+                    #{t.ticketNumber}
+                    {t.damageTypes && <span style={{ marginLeft: 8, fontSize: 11, color: "var(--red)", fontWeight: 600 }}>⚠ {t.damageTypes}</span>}
+                  </div>
+                  <div style={{ fontSize: 12, color: "var(--slate2)" }}>
+                    {[t.vehicleColor, t.vehicleMake, t.vehicleModel].filter(Boolean).join(" ") || "No vehicle details"}
+                    {t.licensePlate ? ` · ${t.licensePlate}` : ""}
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--slate2)" }}>
+                    {t.garage?.name} · Checked in {new Date(t.checkInTime).toLocaleString()}
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                  <button style={{ background: "none", border: "none", color: "var(--red)", fontSize: 11, cursor: "pointer", textTransform: "uppercase" }}
+                    onClick={e => { e.stopPropagation(); if (window.confirm(`Cancel ticket #${t.ticketNumber}?`)) cancelTicket(t.id); }}>
+                    Cancel
+                  </button>
+                  <span style={{ fontSize: 12, color: "var(--slate2)" }}>{isExpanded ? "▲" : "▼"}</span>
+                </div>
+              </div>
+              {isExpanded && (
+                <div style={{ padding: "12px 0 16px", borderTop: "1px solid var(--line)" }}>
+                  {t.apartmentNumber && <div style={{ fontSize: 13, color: "var(--slate2)", marginBottom: 4 }}>Unit: {t.apartmentNumber}</div>}
+                  {t.parkingLocation && <div style={{ fontSize: 13, color: "var(--slate2)", marginBottom: 4 }}>Location: {t.parkingLocation}</div>}
+                  {t.damageTypes && <div style={{ fontSize: 13, color: "var(--red)", fontWeight: 600, marginBottom: 8 }}>⚠ Pre-existing damage: {t.damageTypes}</div>}
+                  {t.photoUrl && (
+                    <div style={{ marginBottom: 8 }}>
+                      <div style={{ fontSize: 11, color: "var(--slate2)", marginBottom: 4 }}>Vehicle photo</div>
+                      <img src={t.photoUrl} alt="Vehicle" onClick={() => setZoomedPhoto(t.photoUrl)} style={{ width: "100%", borderRadius: 8, maxHeight: 160, objectFit: "cover", cursor: "pointer" }} />
+                    </div>
+                  )}
+                  {damageUrls.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: 11, color: "var(--slate2)", marginBottom: 6 }}>Damage photos ({damageUrls.length})</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                        {damageUrls.map((url, i) => <img key={i} src={url} alt={`Damage ${i+1}`} onClick={() => setZoomedPhoto(url)} style={{ width: "100%", borderRadius: 6, height: 100, objectFit: "cover", cursor: "pointer" }} />)}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })
+      )}
+
+      {zoomedPhoto && (
+        <div onClick={() => setZoomedPhoto(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 24 }}>
+          <img src={zoomedPhoto} alt="Full size" style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: 12 }} onClick={e => e.stopPropagation()} />
+          <button onClick={() => setZoomedPhoto(null)} style={{ position: "fixed", top: 20, right: 20, background: "rgba(255,255,255,0.15)", border: "none", borderRadius: "50%", width: 36, height: 36, color: "white", fontSize: 20, cursor: "pointer", lineHeight: "36px" }}>×</button>
+        </div>
+      )}
     </>
   );
 }
