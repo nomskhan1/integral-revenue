@@ -347,11 +347,12 @@ function CheckInView() {
     try {
       for (const file of files) {
         const dataUrl = await resizeImageFile(file);
-        setDamagePhotoPreviews(prev => [...prev, dataUrl]);
+        const stamped = await stampImage(dataUrl, "Pre-existing damage");
+        setDamagePhotoPreviews(prev => [...prev, stamped]);
         const res = await fetch("/api/tickets/upload-photo", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageBase64: dataUrl }),
+          body: JSON.stringify({ imageBase64: stamped }),
         });
         const data = await res.json();
         if (res.ok && data.url) {
@@ -406,6 +407,53 @@ function CheckInView() {
     });
   }
 
+  // Stamps a timestamp + label onto a base64 image data URL.
+  // Returns a new base64 data URL with the overlay burned in.
+  function stampImage(dataUrl, label = "Damage") {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0);
+
+        // Timestamp string
+        const now = new Date();
+        const ts = now.toLocaleString("en-US", {
+          month: "2-digit", day: "2-digit", year: "numeric",
+          hour: "2-digit", minute: "2-digit", second: "2-digit",
+          hour12: true, timeZone: "America/Chicago",
+        });
+        const stampText = `${label} · ${ts} CT`;
+
+        const fontSize = Math.max(14, Math.round(img.width * 0.022));
+        ctx.font = `bold ${fontSize}px Arial, sans-serif`;
+
+        const padding = fontSize * 0.6;
+        const textWidth = ctx.measureText(stampText).width;
+        const boxWidth = textWidth + padding * 2;
+        const boxHeight = fontSize + padding * 1.4;
+        const x = img.width - boxWidth - 10;
+        const y = img.height - boxHeight - 10;
+
+        // Semi-transparent dark background
+        ctx.fillStyle = "rgba(0,0,0,0.62)";
+        ctx.beginPath();
+        ctx.roundRect(x, y, boxWidth, boxHeight, 6);
+        ctx.fill();
+
+        // White text
+        ctx.fillStyle = "#FFFFFF";
+        ctx.fillText(stampText, x + padding, y + boxHeight - padding * 0.7);
+
+        resolve(canvas.toDataURL("image/jpeg", 0.9));
+      };
+      img.src = dataUrl;
+    });
+  }
+
   async function handlePhotoSelect(e) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -414,14 +462,13 @@ function CheckInView() {
     setScanning(true);
     try {
       const dataUrl = await resizeImageFile(file);
-      setPhotoPreview(dataUrl);
+      const stamped = await stampImage(dataUrl, "Vehicle check-in");
+      setPhotoPreview(stamped);
 
-      // Upload the photo so it can be attached to the printed receipt,
-      // regardless of whether AI scanning is set up or succeeds.
       fetch("/api/tickets/upload-photo", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageBase64: dataUrl }),
+        body: JSON.stringify({ imageBase64: stamped }),
       })
         .then((r) => r.json().then((d) => ({ ok: r.ok, d })))
         .then(({ ok, d }) => {
