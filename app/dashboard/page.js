@@ -1404,6 +1404,7 @@ function ActiveTicketsView() {
   const [tickets, setTickets] = useState([]);
   const [error, setError] = useState("");
   const [expandedId, setExpandedId] = useState(null);
+  const [zoomedPhoto, setZoomedPhoto] = useState(null);
 
   const load = useCallback(async () => {
     const res = await fetch("/api/tickets?status=PARKED");
@@ -1492,7 +1493,7 @@ function ActiveTicketsView() {
                 {t.photoUrl && (
                   <div style={{ marginBottom: 8 }}>
                     <div style={{ fontSize: 11, color: "var(--slate2)", marginBottom: 4 }}>Vehicle photo</div>
-                    <img src={t.photoUrl} alt="Vehicle" style={{ width: "100%", borderRadius: 8, maxHeight: 160, objectFit: "cover" }} />
+                    <img src={t.photoUrl} alt="Vehicle" onClick={() => setZoomedPhoto(t.photoUrl)} style={{ width: "100%", borderRadius: 8, maxHeight: 160, objectFit: "cover", cursor: "pointer" }} />
                   </div>
                 )}
                 {damageUrls.length > 0 && (
@@ -1500,7 +1501,7 @@ function ActiveTicketsView() {
                     <div style={{ fontSize: 11, color: "var(--slate2)", marginBottom: 6 }}>Damage photos ({damageUrls.length})</div>
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
                       {damageUrls.map((url, i) => (
-                        <img key={i} src={url} alt={`Damage ${i+1}`} style={{ width: "100%", borderRadius: 6, height: 100, objectFit: "cover" }} />
+                        <img key={i} src={url} alt={`Damage ${i+1}`} onClick={() => setZoomedPhoto(url)} style={{ width: "100%", borderRadius: 6, height: 100, objectFit: "cover", cursor: "pointer" }} />
                       ))}
                     </div>
                   </div>
@@ -1510,6 +1511,13 @@ function ActiveTicketsView() {
           </div>
           );
         })
+      )}
+
+      {zoomedPhoto && (
+        <div onClick={() => setZoomedPhoto(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 24 }}>
+          <img src={zoomedPhoto} alt="Full size" style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: 12, boxShadow: "0 8px 40px rgba(0,0,0,0.5)" }} onClick={e => e.stopPropagation()} />
+          <button onClick={() => setZoomedPhoto(null)} style={{ position: "fixed", top: 20, right: 20, background: "rgba(255,255,255,0.15)", border: "none", borderRadius: "50%", width: 36, height: 36, color: "white", fontSize: 20, cursor: "pointer", lineHeight: "36px" }}>×</button>
+        </div>
       )}
     </>
   );
