@@ -1,21 +1,13 @@
 // Prisma schema for Integral Revenue Management
 // Production datasource is Postgres (Neon, same as Integral Valet).
-
 generator client {
   provider = "prisma-client-js"
 }
-
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
-
 // role:   "SUPER_ADMIN" | "ADMIN" | "GARAGE_MANAGER" | "EMPLOYEE"
-// Super Admin: full platform control, including creating Admin accounts.
-// Admin: manages garages and Garage Managers, but cannot create other Admins.
-// Garage Manager: scoped to one garage, creates Employee accounts.
-// Employee: scoped to one garage, fills/submits only their own shift reports.
-
 model User {
   id           String   @id @default(cuid())
   username     String   @unique
@@ -23,30 +15,16 @@ model User {
   name         String
   role         String   @default("EMPLOYEE")
   createdAt    DateTime @default(now())
-
-  // Which garage this account belongs to. Super Admin and Admin are global
-  // and leave this null. Garage Manager and Employee always have one.
   garageId String?
   garage   Garage? @relation(fields: [garageId], references: [id])
-
-  // Email address used for automated daily reports. Separate from username
-  // since usernames aren't necessarily email addresses in this system.
-  // Only populated for Admin accounts that want automated reports.
   reportEmail String?
-
-  // Which garages this Admin is responsible for. Many-to-many via
-  // AdminGarage. Only used for ADMIN role — other roles use garageId above.
   adminGarages AdminGarage[]
-
   shiftReports   ShiftReport[] @relation("SubmittedBy")
   ncVouchers     NCVoucher[]
   checkedInTickets  Ticket[]   @relation("CheckedInBy")
   checkedOutTickets Ticket[]   @relation("CheckedOutBy")
+  couponBooksSold   CouponPack[] @relation("SoldBy")
 }
-
-// Junction table: which garages each Admin is responsible for.
-// Lets one Admin manage multiple garages, and lets each garage have
-// its report go to only the Admin(s) assigned to it.
 model AdminGarage {
   id      String @id @default(cuid())
   adminId String
@@ -54,19 +32,15 @@ model AdminGarage {
   garageId String
   garage   Garage @relation(fields: [garageId], references: [id])
   createdAt DateTime @default(now())
-
   @@unique([adminId, garageId])
 }
-
 model Garage {
   id        String   @id @default(cuid())
   name      String
   address   String?
-  // Hourly parking rate, used in Phase 2's ticket/fee calculation.
   hourlyRate Float?  @default(0)
   logoUrl    String?
   createdAt  DateTime @default(now())
-
   users          User[]
   adminGarages   AdminGarage[]
   shiftReports   ShiftReport[]
@@ -75,14 +49,14 @@ model Garage {
   paymentMethods GaragePaymentMethod[]
   shiftTemplates ShiftTemplate[]
   ncVouchers     NCVoucher[]
+  couponBooks    CouponBook[]
 }
-
 model NCVoucher {
   id             String    @id @default(cuid())
   code           String    @unique
   garageId       String
   garage         Garage    @relation(fields: [garageId], references: [id])
-  status         String    @default("ACTIVE") // ACTIVE | USED | CANCELLED
+  status         String    @default("ACTIVE")
   note           String?
   createdById    String
   createdBy      User      @relation(fields: [createdById], references: [id])
@@ -93,66 +67,120 @@ model NCVoucher {
   updatedAt      DateTime  @updatedAt
 }
 
+// ── COUPON SYSTEM ─────────────────────────────────────────────────────────────
+
+// CouponBook: a template defining a type of coupon pack that can be sold.
+// Admin creates these per garage. e.g. "10-pack · 2 free hours · $50"
+model CouponBook {
+  id          String   @id @default(cuid())
+  garageId    String
+  garage      Garage   @relation(fields: [garageId], references: [id])
+  name        String   // e.g. "Standard 10-Pack"
+  description String?
+  // Pack size: 5 | 10 | 15 | 20
+  packSize    Int
+  // Discount type: "FLAT_DOLLAR" | "FREE_HOURS" | "FIXED_RATE"
+  discountType String
+  // Value depends on discountType:
+  // FLAT_DOLLAR  → dollars off (e.g. 5.00 = $5 off)
+  // FREE_HOURS   → hours free (e.g. 2.0 = first 2 hours free)
+  // FIXED_RATE   → flat fee charged (e.g. 3.00 = pay only $3)
+  discountValue Float
+  // Price charged to the customer for the entire pack
+  salePrice    Float
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  packs        CouponPack[]
+}
+
+// CouponPack: a purchased pack of coupons sold to a specific customer.
+// Created when a sale is processed via Square Terminal.
+model CouponPack {
+  id           String     @id @default(cuid())
+  couponBookId String
+  couponBook   CouponBook @relation(fields: [couponBookId], references: [id])
+  // Customer info
+  customerName  String?
+  customerEmail String?
+  customerPhone String?
+  // Payment info
+  amountPaid    Float
+  squarePaymentId String?
+  // Who sold it and when
+  soldById      String
+  soldBy        User       @relation("SoldBy", fields: [soldById], references: [id])
+  soldAt        DateTime   @default(now())
+  // Status: ACTIVE | EXHAUSTED | CANCELLED
+  status        String     @default("ACTIVE")
+  coupons       Coupon[]
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+}
+
+// Coupon: individual coupon within a pack, each with its own unique QR code.
+model Coupon {
+  id           String     @id @default(cuid())
+  couponPackId String
+  couponPack   CouponPack @relation(fields: [couponPackId], references: [id])
+  // Unique token encoded in the QR code — unguessable
+  qrToken      String     @unique @default(cuid())
+  // Sequential number within the pack (1, 2, 3...)
+  sequenceNum  Int
+  // Status: UNUSED | USED | CANCELLED
+  status       String     @default("UNUSED")
+  // Usage tracking
+  usedAt          DateTime?
+  usedByTicketId  String?
+  couponPhotoUrl  String?   // photo staff takes at checkout
+  discountApplied Float?    // actual discount amount applied
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+}
+
+// ── END COUPON SYSTEM ─────────────────────────────────────────────────────────
+
 model AppSetting {
   id        String   @id @default(cuid())
   key       String   @unique
   value     String
   updatedAt DateTime @updatedAt
 }
-
 model ShiftTemplate {
   id        String   @id @default(cuid())
   garageId  String
   garage    Garage   @relation(fields: [garageId], references: [id])
-  name      String   // e.g. "Morning", "Evening", "Night"
-  startTime String   // e.g. "7:00 AM"
-  endTime   String   // e.g. "3:00 PM"
+  name      String
+  startTime String
+  endTime   String
   createdAt DateTime @default(now())
 }
-
-// Which payment methods Admin has enabled for a given garage.
-// Employees only see and use the methods enabled here at checkout.
 model GaragePaymentMethod {
   id        String   @id @default(cuid())
   garageId  String
   garage    Garage   @relation(fields: [garageId], references: [id])
-  // "CASH" | "CREDIT_CARD" | "COUPON" | "CHARGE_BACK" | "NC" | "LOANER"
   method    String
   createdAt DateTime @default(now())
-
   @@unique([garageId, method])
 }
-
 model RateTier {
   id       String @id @default(cuid())
   garageId String
   garage   Garage @relation(fields: [garageId], references: [id])
-
-  // Optional display name, e.g. "Up to 1 hour" — purely cosmetic.
   label String?
-
-  // The fee charged for any ticket whose duration falls into this tier.
-  // maxHours is the upper bound — stored as a float to support fractional
-  // hours like 1.75 (= 1 hr 45 min). The tier with maxHours = null is the
-  // open-ended catch-all applied when no other tier matches.
   maxHours Float?
   fee      Float
-
   createdAt DateTime @default(now())
 }
-
 model ShiftReport {
   id       String @id @default(cuid())
   garageId String
   garage   Garage @relation(fields: [garageId], references: [id])
-
   employeeId String
   employee   User   @relation("SubmittedBy", fields: [employeeId], references: [id])
-
-  shiftDate String // YYYY-MM-DD, the calendar day this shift covers
-  startTime String? // free-text or HH:MM, e.g. "7:00 AM"
+  shiftDate String
+  startTime String?
   endTime   String?
-
   cashRevenue       Float @default(0)
   creditCardRevenue Float @default(0)
   couponRevenue     Float @default(0)
@@ -161,79 +189,46 @@ model ShiftReport {
   loanerRevenue     Float @default(0)
   otherRevenue      Float @default(0)
   otherDescription  String?
-
-  // Any deduction from gross — refunds, discrepancies, cash drawer
-  // shortages, etc. Optional, defaults to 0 so net == gross unless used.
   adjustments       Float @default(0)
   adjustmentsNote    String?
-
-  // Calculated and stored at submit time so a report's totals never
-  // silently change if rates or logic evolve later.
   grossTotal Float @default(0)
   netTotal   Float @default(0)
-
   notes String?
-
-  // "DRAFT" | "SUBMITTED" — once submitted, the report is locked and
-  // cannot be edited by the employee who filed it.
   status      String    @default("DRAFT")
   submittedAt DateTime?
-
   tickets Ticket[]
-
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
-
 model Ticket {
   id           String @id @default(cuid())
   garageId     String
   garage       Garage @relation(fields: [garageId], references: [id])
-
-  // Short human-readable number shown on the printed ticket (e.g. "0042"),
-  // unique per garage. qrToken is the longer, unguessable string actually
-  // encoded into the QR code/barcode for scanning.
   ticketNumber String
   qrToken      String @unique
-
-  // "PARKED" | "COMPLETED" | "CANCELLED"
   status String @default("PARKED")
-
   checkInTime  DateTime  @default(now())
   checkOutTime DateTime?
-
-  // Optional fields captured at check-in.
   apartmentNumber String?
   vehicleMake     String?
   vehicleModel    String?
   vehicleColor    String?
   licensePlate    String?
   parkingLocation String?
-  // Photo of the vehicle/plate taken at check-in, stored in Vercel Blob.
   photoUrl        String?
-  // Pre-existing damage documentation captured at check-in.
   damagePhotoUrl  String?
   damageTypes     String?
-
-  // Computed at checkout.
   durationMinutes Int?
   feeAmount       Float?
-  // "CASH" | "CREDIT_CARD"
   paymentMethod   String?
   paymentNote     String?
-
   checkedInById  String
   checkedInBy    User   @relation("CheckedInBy", fields: [checkedInById], references: [id])
   checkedOutById String?
   checkedOutBy   User?  @relation("CheckedOutBy", fields: [checkedOutById], references: [id])
-
-  // The shift report this transaction's revenue was applied to, so the
-  // Shift Report's totals stay in sync with completed tickets automatically.
   shiftReportId String?
   shiftReport   ShiftReport? @relation(fields: [shiftReportId], references: [id])
-
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
   @@unique([garageId, ticketNumber])
 }

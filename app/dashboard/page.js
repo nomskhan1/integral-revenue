@@ -165,9 +165,6 @@ export default function Dashboard() {
             <button className={tab === "revenue" ? "active" : ""} onClick={() => setTab("revenue")}>
               Revenue
             </button>
-            <button className={tab === "active" ? "active" : ""} onClick={() => setTab("active")}>
-              Active Tickets
-            </button>
             <button className={tab === "garages" ? "active" : ""} onClick={() => setTab("garages")}>
               Garages
             </button>
@@ -185,6 +182,9 @@ export default function Dashboard() {
             </button>
             <button className={tab === "vouchers" ? "active" : ""} onClick={() => setTab("vouchers")}>
               N/C Vouchers
+            </button>
+            <button className={tab === "coupons" ? "active" : ""} onClick={() => setTab("coupons")}>
+              Coupons
             </button>
           </div>
         )}
@@ -215,8 +215,8 @@ export default function Dashboard() {
         {tab === "daily-closed" && (user.role === "GARAGE_MANAGER" || isAdmin) && <DailyClosedView user={user} showGarageFilter={isAdmin} logoUrl={appSettings.logoUrl} companyName={appSettings.companyName} />}
         {tab === "branding" && (isAdmin || isSuperAdmin) && <BrandingView settings={appSettings} onSaved={setAppSettings} />}
         {tab === "vouchers" && (isAdmin || user.role === "GARAGE_MANAGER") && <VouchersView user={user} isAdmin={isAdmin} />}
+        {tab === "coupons" && isAdmin && <CouponsView user={user} />}
         {tab === "revenue" && isAdmin && <RevenueDashboard user={user} />}
-        {tab === "active" && isAdmin && <AdminActiveTicketsView user={user} />}
         {tab === "garages" && (isAdmin || isSuperAdmin) && <GaragesView currentUser={user} />}
         {tab === "users" && (isAdmin || isSuperAdmin) && <UsersView currentUser={user} />}
 
@@ -327,62 +327,6 @@ function CheckInView() {
   const cameraInputRef = useRef(null);
   const galleryInputRef = useRef(null);
 
-  // Pre-existing damage — supports multiple photos
-  const [damagePhotoUrls, setDamagePhotoUrls] = useState([]);
-  const [damagePhotoPreviews, setDamagePhotoPreviews] = useState([]);
-  const [damagePhotoUploading, setDamagePhotoUploading] = useState(false);
-  const [damageTypes, setDamageTypes] = useState([]);
-  const damageCameraRef = useRef(null);
-  const damageGalleryRef = useRef(null);
-  const damagePhotoUrlsRef = useRef([]); // always in sync, avoids stale closure
-
-  const DAMAGE_OPTIONS = ["Scratch", "Dent", "Crack", "Missing part", "Paint chip", "Broken light", "Other"];
-
-  function toggleDamage(type) {
-    setDamageTypes(prev =>
-      prev.includes(type) ? prev.filter(d => d !== type) : [...prev, type]
-    );
-  }
-
-  async function handleDamagePhotoSelect(e) {
-    const files = Array.from(e.target.files || []);
-    if (!files.length) return;
-    setDamagePhotoUploading(true);
-    try {
-      for (const file of files) {
-        const dataUrl = await resizeImageFile(file);
-        const stamped = await stampImage(dataUrl, "Pre-existing damage");
-        setDamagePhotoPreviews(prev => [...prev, stamped]);
-        const res = await fetch("/api/tickets/upload-photo", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageBase64: stamped }),
-        });
-        const data = await res.json();
-        if (res.ok && data.url) {
-          setDamagePhotoUrls(prev => [...prev, data.url]);
-          damagePhotoUrlsRef.current = [...damagePhotoUrlsRef.current, data.url];
-        } else {
-          console.error("Damage photo upload failed:", data);
-          setError(`Photo upload failed: ${data.error || "Unknown error"}`);
-        }
-      }
-    } catch(err) {
-      console.error("Damage photo error:", err);
-      setError("Failed to upload photo. Please try again.");
-    }
-    finally {
-      setDamagePhotoUploading(false);
-      e.target.value = "";
-    }
-  }
-
-  function removeDamagePhoto(index) {
-    setDamagePhotoPreviews(prev => prev.filter((_, i) => i !== index));
-    setDamagePhotoUrls(prev => prev.filter((_, i) => i !== index));
-    damagePhotoUrlsRef.current = damagePhotoUrlsRef.current.filter((_, i) => i !== index);
-  }
-
   function resizeImageFile(file, maxDimension = 1024, quality = 0.75) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -411,53 +355,6 @@ function CheckInView() {
     });
   }
 
-  // Stamps a timestamp + label onto a base64 image data URL.
-  // Returns a new base64 data URL with the overlay burned in.
-  function stampImage(dataUrl, label = "Damage") {
-    return new Promise((resolve) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement("canvas");
-        canvas.width = img.width;
-        canvas.height = img.height;
-        const ctx = canvas.getContext("2d");
-        ctx.drawImage(img, 0, 0);
-
-        // Timestamp string
-        const now = new Date();
-        const ts = now.toLocaleString("en-US", {
-          month: "2-digit", day: "2-digit", year: "numeric",
-          hour: "2-digit", minute: "2-digit", second: "2-digit",
-          hour12: true, timeZone: "America/Chicago",
-        });
-        const stampText = `${label} · ${ts} CT`;
-
-        const fontSize = Math.max(14, Math.round(img.width * 0.022));
-        ctx.font = `bold ${fontSize}px Arial, sans-serif`;
-
-        const padding = fontSize * 0.6;
-        const textWidth = ctx.measureText(stampText).width;
-        const boxWidth = textWidth + padding * 2;
-        const boxHeight = fontSize + padding * 1.4;
-        const x = img.width - boxWidth - 10;
-        const y = img.height - boxHeight - 10;
-
-        // Semi-transparent dark background
-        ctx.fillStyle = "rgba(0,0,0,0.62)";
-        ctx.beginPath();
-        ctx.roundRect(x, y, boxWidth, boxHeight, 6);
-        ctx.fill();
-
-        // White text
-        ctx.fillStyle = "#FFFFFF";
-        ctx.fillText(stampText, x + padding, y + boxHeight - padding * 0.7);
-
-        resolve(canvas.toDataURL("image/jpeg", 0.9));
-      };
-      img.src = dataUrl;
-    });
-  }
-
   async function handlePhotoSelect(e) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -466,13 +363,14 @@ function CheckInView() {
     setScanning(true);
     try {
       const dataUrl = await resizeImageFile(file);
-      const stamped = await stampImage(dataUrl, "Vehicle check-in");
-      setPhotoPreview(stamped);
+      setPhotoPreview(dataUrl);
 
+      // Upload the photo so it can be attached to the printed receipt,
+      // regardless of whether AI scanning is set up or succeeds.
       fetch("/api/tickets/upload-photo", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageBase64: stamped }),
+        body: JSON.stringify({ imageBase64: dataUrl }),
       })
         .then((r) => r.json().then((d) => ({ ok: r.ok, d })))
         .then(({ ok, d }) => {
@@ -506,7 +404,7 @@ function CheckInView() {
     e.preventDefault();
     setError("");
     setSaving(true);
-    const body = { apartmentNumber, vehicleMake, vehicleModel, vehicleColor, licensePlate, parkingLocation, photoUrl: vehiclePhotoUrl, damagePhotoUrl: damagePhotoUrlsRef.current.length > 0 ? JSON.stringify(damagePhotoUrlsRef.current) : null, damageTypes: damageTypes.length > 0 ? damageTypes.join(", ") : null };
+    const body = { apartmentNumber, vehicleMake, vehicleModel, vehicleColor, licensePlate, parkingLocation, photoUrl: vehiclePhotoUrl };
     const res = await fetch("/api/tickets", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -523,8 +421,6 @@ function CheckInView() {
     setApartmentNumber(""); setVehicleMake(""); setVehicleModel("");
     setVehicleColor(""); setLicensePlate(""); setParkingLocation("");
     setScanNotice(""); setVehiclePhotoUrl(null); setPhotoPreview(null);
-    setDamagePhotoUrls([]); setDamagePhotoPreviews([]); setDamageTypes([]);
-    damagePhotoUrlsRef.current = [];
   }
 
   async function sendSms(ticketId, phone) {
@@ -609,19 +505,6 @@ function CheckInView() {
                 <div className="pt-row"><span>Vehicle</span><span>{[ticket.vehicleColor, ticket.vehicleMake, ticket.vehicleModel].filter(Boolean).join(" ")}</span></div>
               )}
               {ticket.parkingLocation && <div className="pt-row"><span>Location</span><span>{ticket.parkingLocation}</span></div>}
-          {ticket.damageTypes && <div className="pt-row"><span>Damage noted</span><span style={{ color: "var(--red)", fontWeight: 600 }}>{ticket.damageTypes}</span></div>}
-          {ticket.damagePhotoUrl && (() => {
-            let urls = [];
-            try { urls = JSON.parse(ticket.damagePhotoUrl); } catch { urls = [ticket.damagePhotoUrl]; }
-            return urls.length > 0 ? (
-              <div style={{ marginTop: 10 }}>
-                <div style={{ fontSize: 11, color: "var(--slate2)", marginBottom: 6 }}>Damage photos ({urls.length})</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-                  {urls.map((url, i) => <img key={i} src={url} alt={`Damage ${i+1}`} style={{ width: "100%", borderRadius: 6, height: 80, objectFit: "cover" }} />)}
-                </div>
-              </div>
-            ) : null;
-          })()}
               {ticket.photoUrl && (
                 <div className="pt-center" style={{ marginTop: "4mm" }}>
                   <img src={ticket.photoUrl} alt="" style={{ width: "100%", maxHeight: "60mm", objectFit: "cover" }} />
@@ -715,46 +598,6 @@ function CheckInView() {
           />
           <div className="field-hint">If provided, we'll offer to text them their ticket QR code after check-in.</div>
         </div>
-
-        {/* Pre-existing damage */}
-        <div style={{ background: "var(--navy-2)", borderRadius: 10, padding: "16px 18px", marginBottom: 16 }}>
-          <div style={{ fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--slate2)", marginBottom: 12 }}>
-            Pre-existing damage (optional)
-          </div>
-
-          {/* Damage type checkboxes */}
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
-            {DAMAGE_OPTIONS.map((type) => (
-              <label key={type} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13, background: damageTypes.includes(type) ? "rgba(201,162,39,0.15)" : "var(--navy)", border: `1px solid ${damageTypes.includes(type) ? "var(--brass)" : "var(--line)"}`, borderRadius: 6, padding: "6px 10px", color: damageTypes.includes(type) ? "var(--brass-light)" : "var(--cream)" }}>
-                <input type="checkbox" checked={damageTypes.includes(type)} onChange={() => toggleDamage(type)} style={{ width: "auto" }} />
-                {type}
-              </label>
-            ))}
-          </div>
-
-          {/* Damage photo */}
-          <div style={{ display: "flex", gap: 8 }}>
-            <button type="button" className="btn btn-ghost" style={{ flex: 1, fontSize: 13, padding: "10px" }} onClick={() => damageCameraRef.current?.click()}>
-              📷 Add damage photo
-            </button>
-            <button type="button" className="btn btn-ghost" style={{ flex: 1, fontSize: 13, padding: "10px" }} onClick={() => damageGalleryRef.current?.click()}>
-              🖼️ Choose photos
-            </button>
-          </div>
-          <input ref={damageCameraRef} type="file" accept="image/*" capture="environment" onChange={handleDamagePhotoSelect} style={{ display: "none" }} />
-          <input ref={damageGalleryRef} type="file" accept="image/*" multiple onChange={handleDamagePhotoSelect} style={{ display: "none" }} />
-          {damagePhotoUploading && <div style={{ fontSize: 12, color: "var(--slate2)", marginTop: 8 }}>Uploading...</div>}
-          {damagePhotoPreviews.length > 0 && (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 10 }}>
-              {damagePhotoPreviews.map((src, i) => (
-                <div key={i} style={{ position: "relative" }}>
-                  <img src={src} alt={`Damage ${i+1}`} style={{ width: "100%", borderRadius: 8, height: 100, objectFit: "cover" }} />
-                  <button type="button" onClick={() => removeDamagePhoto(i)} style={{ position: "absolute", top: 4, right: 4, background: "rgba(0,0,0,0.6)", border: "none", borderRadius: "50%", width: 22, height: 22, color: "white", cursor: "pointer", fontSize: 12, lineHeight: "22px", padding: 0 }}>×</button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
         <button className="btn btn-primary" type="submit" disabled={saving}>
           {saving ? "Checking in..." : "Check in & generate ticket"}
         </button>
@@ -773,7 +616,17 @@ function CheckOutView() {
   const [voucherStatus, setVoucherStatus] = useState(null);
   const [voucherPhotoUrl, setVoucherPhotoUrl] = useState(null);
   const [voucherPhotoUploading, setVoucherPhotoUploading] = useState(false);
-  const voucherPhotoInputRef = useRef(null); // null | { valid, error, voucher }
+  const voucherPhotoInputRef = useRef(null);
+
+  // Coupon state
+  const [couponCode, setCouponCode] = useState("");
+  const [couponStatus, setCouponStatus] = useState(null); // null | { valid, error, coupon }
+  const [couponPhotoUrl, setCouponPhotoUrl] = useState(null);
+  const [couponPhotoUploading, setCouponPhotoUploading] = useState(false);
+  const couponPhotoInputRef = useRef(null);
+  const couponCameraRef = useRef(null);
+  const couponStreamRef = useRef(null);
+  const couponScanLoopRef = useRef(null);
   const [paymentNote, setPaymentNote] = useState("");
   const [completing, setCompleting] = useState(false);
   const [completed, setCompleted] = useState(null);
@@ -891,6 +744,13 @@ function CheckOutView() {
 
   useEffect(() => { return () => closeVoucherCamera(); }, []);
 
+  async function validateCoupon(token) {
+    if (!token) return;
+    const res = await fetch(`/api/coupons/validate?token=${encodeURIComponent(token.trim())}`);
+    const data = await res.json();
+    setCouponStatus(data);
+  }
+
   async function lookupByCode(rawCode) {
     setError("");
     setTicket(null);
@@ -964,61 +824,75 @@ function CheckOutView() {
 
   // Launches Square POS app via deep link with amount pre-filled.
   // Works in native Android app (Capacitor wrapper) — the deep link
-  // Sends payment request directly to paired Square Terminal via Terminal API.
+  // square-commerce-v1:// is handled natively, unlike Chrome WebView.
+  // Square Reader processes the card, then returns to the app via callback.
   async function launchSquarePOS() {
     if (!ticket || !currentUserId) return;
     setError("");
-    setCompleting(true);
 
-    try {
-      const res = await fetch("/api/square/charge", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ticketId: ticket.id }),
-      });
-      const data = await res.json();
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
+    const callbackUrl = `${appUrl}/api/square/callback`;
+    const amountCents = Math.round((ticket.previewFee || 0) * 100);
+    const clientId = process.env.NEXT_PUBLIC_SQUARE_APP_ID;
 
-      if (!res.ok) {
-        setError(data.error || "Failed to start payment. Make sure the Terminal is on and connected.");
-        setCompleting(false);
+    if (!clientId) {
+      setError("Square is not configured yet. Contact your administrator.");
+      return;
+    }
+
+    if (amountCents <= 0) {
+      setError("Cannot charge $0. Please check the fee calculation.");
+      return;
+    }
+
+    const customData = `${ticket.id}|${currentUserId}`;
+
+    // Use simple flat URL parameters — more reliable than JSON data blob
+    const squareParams = new URLSearchParams();
+    squareParams.set("client_id", clientId);
+    squareParams.set("amount_money", String(amountCents));
+    squareParams.set("currency_code", "USD");
+    squareParams.set("callback_url", callbackUrl);
+    squareParams.set("notes", customData);
+
+    const squareUrl = `square-commerce-v1://payment/create?${squareParams.toString()}`;
+
+    // Try multiple approaches to open the Square URL scheme
+    const isNative = window.Capacitor && window.Capacitor.isNativePlatform();
+    
+    if (isNative) {
+      // Method 1: Try Capacitor App plugin
+      try {
+        await window.Capacitor.Plugins.App.openUrl({ url: squareUrl });
         return;
+      } catch (e1) {
+        console.log("App.openUrl failed:", e1);
+      }
+      
+      // Method 2: Try window.open with _system target
+      try {
+        window.open(squareUrl, "_system");
+        return;
+      } catch (e2) {
+        console.log("window.open _system failed:", e2);
       }
 
-      const { checkoutId, ticketNumber, amount } = data;
-
-      // Poll every 3 seconds until Terminal payment completes or is cancelled
-      const pollInterval = setInterval(async () => {
-        try {
-          const statusRes = await fetch(`/api/square/status?checkoutId=${checkoutId}&ticketId=${ticket.id}`);
-          const statusData = await statusRes.json();
-          if (statusData.status === "COMPLETED") {
-            clearInterval(pollInterval);
-            setCompleting(false);
-            setCompleted({
-              ticketNumber: statusData.ticketNumber || ticketNumber,
-              feeAmount: statusData.feeAmount || amount,
-              paymentMethod: "CREDIT_CARD",
-            });
-          } else if (statusData.status === "CANCELLED") {
-            clearInterval(pollInterval);
-            setCompleting(false);
-            setError("Payment was cancelled on the Terminal. Please try again.");
-          }
-        } catch {}
-      }, 3000);
-
-      setTimeout(() => {
-        clearInterval(pollInterval);
-        setCompleting((prev) => {
-          if (prev) setError("Payment timed out. Please check the Terminal and try again.");
-          return false;
-        });
-      }, 180000);
-
-    } catch {
-      setError("Network error. Please try again.");
-      setCompleting(false);
+      // Method 3: Create and click an anchor
+      try {
+        const a = document.createElement("a");
+        a.href = squareUrl;
+        a.target = "_system";
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => document.body.removeChild(a), 500);
+        return;
+      } catch (e3) {
+        console.log("anchor click failed:", e3);
+      }
     }
+
+    // Web fallback
+    window.location.href = squareUrl;
   }
 
   async function completeCheckout() {
@@ -1032,7 +906,14 @@ function CheckOutView() {
     const res = await fetch(`/api/tickets/${ticket.id}/checkout`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ paymentMethod, paymentNote, voucherCode: paymentMethod === "NC" ? voucherCode : undefined, voucherPhotoUrl: paymentMethod === "NC" ? voucherPhotoUrl : undefined }),
+      body: JSON.stringify({
+        paymentMethod,
+        paymentNote,
+        voucherCode: paymentMethod === "NC" ? voucherCode : undefined,
+        voucherPhotoUrl: paymentMethod === "NC" ? voucherPhotoUrl : undefined,
+        couponToken: paymentMethod === "COUPON" ? couponCode : undefined,
+        couponPhotoUrl: paymentMethod === "COUPON" ? couponPhotoUrl : undefined,
+      }),
     });
     const data = await res.json();
     setCompleting(false);
@@ -1133,8 +1014,6 @@ function CheckOutView() {
         </div>
 
         {paymentMethod === "NC" && (
-          <div className="field">
-            <label>N/C Voucher — scan or enter code <span style={{ color: "var(--red)" }}>*</span></label>
 
             {/* Row 1: manual code entry + validate */}
             <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
@@ -1294,6 +1173,100 @@ function CheckOutView() {
           </div>
         )}
 
+        {/* ── COUPON PAYMENT ── */}
+        {paymentMethod === "COUPON" && (
+          <div className="field">
+            <label>Coupon — scan QR or enter code <span style={{ color: "var(--red)" }}>*</span></label>
+            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+              <input
+                value={couponCode}
+                onChange={e => { setCouponCode(e.target.value); setCouponStatus(null); }}
+                placeholder="Enter coupon code manually"
+                style={{ fontFamily: "monospace", flex: 1 }}
+              />
+              <button type="button" className="btn btn-primary"
+                style={{ width: "auto", padding: "0 14px", flexShrink: 0 }}
+                disabled={!couponCode.trim()}
+                onClick={() => validateCoupon(couponCode)}>
+                Validate
+              </button>
+            </div>
+            {/* Photo scan */}
+            <input
+              ref={couponPhotoInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              style={{ display: "none" }}
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                setCouponPhotoUploading(true);
+                setCouponStatus(null);
+                const dataUrl = await new Promise((resolve) => {
+                  const reader = new FileReader();
+                  reader.onload = ev => resolve(ev.target.result);
+                  reader.readAsDataURL(file);
+                });
+                try {
+                  const { default: jsQR } = await import("jsqr");
+                  const img = await new Promise((resolve, reject) => {
+                    const i = new Image(); i.onload = () => resolve(i); i.onerror = reject; i.src = dataUrl;
+                  });
+                  let result = null;
+                  for (const scale of [1, 0.5, 0.25]) {
+                    const canvas = document.createElement("canvas");
+                    canvas.width = Math.round(img.width * scale);
+                    canvas.height = Math.round(img.height * scale);
+                    canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+                    const imageData = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height);
+                    result = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: "attemptBoth" });
+                    if (result?.data) break;
+                  }
+                  if (result?.data) {
+                    setCouponCode(result.data.trim());
+                    await validateCoupon(result.data.trim());
+                  } else {
+                    setCouponStatus({ valid: false, error: "No QR code found. Make sure the code is visible and in focus." });
+                  }
+                } catch { setCouponStatus({ valid: false, error: "Couldn't process the photo. Try again." }); }
+                // Upload photo for audit
+                try {
+                  const res = await fetch("/api/tickets/upload-photo", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ imageBase64: dataUrl }),
+                  });
+                  const d = await res.json();
+                  if (d.url) setCouponPhotoUrl(d.url);
+                } catch {}
+                setCouponPhotoUploading(false);
+              }}
+            />
+            {couponPhotoUrl ? (
+              <div style={{ position: "relative", marginBottom: 8 }}>
+                <img src={couponPhotoUrl} alt="Coupon" style={{ width: "100%", maxHeight: 200, objectFit: "cover", borderRadius: 8 }} />
+                <button type="button" onClick={() => { setCouponPhotoUrl(null); setCouponCode(""); setCouponStatus(null); }}
+                  style={{ position: "absolute", top: 6, right: 6, background: "rgba(0,0,0,0.65)", border: "none", color: "#fff", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12 }}>
+                  Retake
+                </button>
+              </div>
+            ) : (
+              <button type="button" className="btn btn-ghost" style={{ width: "100%", marginBottom: 8 }}
+                onClick={() => couponPhotoInputRef.current?.click()} disabled={couponPhotoUploading}>
+                {couponPhotoUploading ? "Processing..." : "📷 Take photo of coupon — scans QR & saves for audit"}
+              </button>
+            )}
+            {couponStatus && (
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: couponStatus.valid ? "var(--green)" : "var(--red)" }}>
+                {couponStatus.valid
+                  ? `✓ Valid coupon — ${couponStatus.coupon?.discountType === "FLAT_DOLLAR" ? `$${couponStatus.coupon.discountValue} off` : couponStatus.coupon?.discountType === "FREE_HOURS" ? `${couponStatus.coupon.discountValue} hours free` : `flat rate $${couponStatus.coupon?.discountValue}`}`
+                  : `✗ ${couponStatus.error}`}
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="field">
           <label>Payment note (optional)</label>
           <input value={paymentNote} onChange={(e) => setPaymentNote(e.target.value)} placeholder="e.g. last 4 digits, terminal reference" />
@@ -1306,13 +1279,15 @@ function CheckOutView() {
         ) : (
           <button
             className="btn btn-primary"
-            disabled={completing || !paymentMethod || (paymentMethod === "NC" && !voucherStatus?.valid)}
+            disabled={completing || !paymentMethod || (paymentMethod === "NC" && !voucherStatus?.valid) || (paymentMethod === "COUPON" && !couponStatus?.valid)}
             onClick={completeCheckout}
           >
             {completing
               ? "Processing..."
               : paymentMethod === "NC" && !voucherStatus?.valid
               ? "Scan or enter valid voucher first"
+              : paymentMethod === "COUPON" && !couponStatus?.valid
+              ? "Scan or enter valid coupon first"
               : ZERO_FEE_METHODS.has(paymentMethod)
               ? "Complete checkout — No charge"
               : `Complete checkout — ${money(displayedFee)}`}
@@ -1454,8 +1429,6 @@ function ReprintTicket({ ticket }) { return null; }
 function ActiveTicketsView() {
   const [tickets, setTickets] = useState([]);
   const [error, setError] = useState("");
-  const [expandedId, setExpandedId] = useState(null);
-  const [zoomedPhoto, setZoomedPhoto] = useState(null);
 
   const load = useCallback(async () => {
     const res = await fetch("/api/tickets?status=PARKED");
@@ -1493,20 +1466,11 @@ function ActiveTicketsView() {
           Checked-in vehicles will show up here until checkout.
         </div>
       ) : (
-        tickets.map((t) => {
-          const isExpanded = expandedId === t.id;
-          let damageUrls = [];
-          if (t.damagePhotoUrl) {
-            try { damageUrls = JSON.parse(t.damagePhotoUrl); } catch { damageUrls = [t.damagePhotoUrl]; }
-          }
-          return (
-          <div key={t.id} style={{ borderBottom: "1px solid var(--line)", marginBottom: 0 }}>
-            <div className="list-row" style={{ display: "flex", justifyContent: "space-between", borderBottom: "none", cursor: "pointer" }} onClick={() => setExpandedId(isExpanded ? null : t.id)}>
+        tickets.map((t) => (
+          <div key={t.id} className="list-row" style={{ display: "block" }}>
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
               <div>
-                <div style={{ fontWeight: 600 }}>
-                  #{t.ticketNumber}
-                  {t.damageTypes && <span style={{ marginLeft: 8, fontSize: 11, color: "var(--red)", fontWeight: 600 }}>⚠ {t.damageTypes}</span>}
-                </div>
+                <div style={{ fontWeight: 600 }}>#{t.ticketNumber}</div>
                 <div style={{ fontSize: 12, color: "var(--slate2)" }}>
                   {[t.vehicleColor, t.vehicleMake, t.vehicleModel].filter(Boolean).join(" ") || "No vehicle details"}
                   {t.licensePlate ? ` · ${t.licensePlate}` : ""}
@@ -1518,57 +1482,21 @@ function ActiveTicketsView() {
               <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                 <button
                   style={{ background: "none", border: "none", color: "var(--brass-light)", fontSize: 11, cursor: "pointer", textTransform: "uppercase" }}
-                  onClick={(e) => { e.stopPropagation(); handleReprint(t); }}
+                  onClick={() => handleReprint(t)}
                 >
                   Reprint
                 </button>
                 <button
                   className="role-tag"
                   style={{ background: "none", cursor: "pointer", color: "var(--red)", height: "fit-content" }}
-                  onClick={(e) => { e.stopPropagation(); if (window.confirm(`Cancel ticket #${t.ticketNumber}?`)) cancelTicket(t.id); }}
+                  onClick={() => { if (window.confirm(`Cancel ticket #${t.ticketNumber}?`)) cancelTicket(t.id); }}
                 >
                   Cancel
                 </button>
-                <span style={{ fontSize: 12, color: "var(--slate2)" }}>{isExpanded ? "▲" : "▼"}</span>
               </div>
             </div>
-            {isExpanded && (
-              <div style={{ padding: "12px 0 16px", borderTop: "1px solid var(--line)" }}>
-                {t.apartmentNumber && <div style={{ fontSize: 13, color: "var(--slate2)", marginBottom: 4 }}>Unit: {t.apartmentNumber}</div>}
-                {t.parkingLocation && <div style={{ fontSize: 13, color: "var(--slate2)", marginBottom: 4 }}>Location: {t.parkingLocation}</div>}
-                {t.damageTypes && (
-                  <div style={{ fontSize: 13, color: "var(--red)", fontWeight: 600, marginBottom: 8 }}>
-                    ⚠ Pre-existing damage: {t.damageTypes}
-                  </div>
-                )}
-                {t.photoUrl && (
-                  <div style={{ marginBottom: 8 }}>
-                    <div style={{ fontSize: 11, color: "var(--slate2)", marginBottom: 4 }}>Vehicle photo</div>
-                    <img src={t.photoUrl} alt="Vehicle" onClick={() => setZoomedPhoto(t.photoUrl)} style={{ width: "100%", borderRadius: 8, maxHeight: 160, objectFit: "cover", cursor: "pointer" }} />
-                  </div>
-                )}
-                {damageUrls.length > 0 && (
-                  <div>
-                    <div style={{ fontSize: 11, color: "var(--slate2)", marginBottom: 6 }}>Damage photos ({damageUrls.length})</div>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-                      {damageUrls.map((url, i) => (
-                        <img key={i} src={url} alt={`Damage ${i+1}`} onClick={() => setZoomedPhoto(url)} style={{ width: "100%", borderRadius: 6, height: 100, objectFit: "cover", cursor: "pointer" }} />
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
           </div>
-          );
-        })
-      )}
-
-      {zoomedPhoto && (
-        <div onClick={() => setZoomedPhoto(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 24 }}>
-          <img src={zoomedPhoto} alt="Full size" style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: 12, boxShadow: "0 8px 40px rgba(0,0,0,0.5)" }} onClick={e => e.stopPropagation()} />
-          <button onClick={() => setZoomedPhoto(null)} style={{ position: "fixed", top: 20, right: 20, background: "rgba(255,255,255,0.15)", border: "none", borderRadius: "50%", width: 36, height: 36, color: "white", fontSize: 20, cursor: "pointer", lineHeight: "36px" }}>×</button>
-        </div>
+        ))
       )}
     </>
   );
@@ -1705,24 +1633,6 @@ function TicketHistoryView({ user, showGarageFilter, logoUrl, companyName }) {
               <span style={{ color: "var(--slate2)" }}>Location</span><span>{viewing.parkingLocation}</span>
             </div>
           )}
-          {viewing.damageTypes && (
-            <div className="list-row" style={{ borderBottom: "none", padding: "4px 0" }}>
-              <span style={{ color: "var(--slate2)" }}>Pre-existing damage</span>
-              <span style={{ color: "var(--red)", fontWeight: 600 }}>{viewing.damageTypes}</span>
-            </div>
-          )}
-          {viewing.damagePhotoUrl && (() => {
-            let urls = [];
-            try { urls = JSON.parse(viewing.damagePhotoUrl); } catch { urls = [viewing.damagePhotoUrl]; }
-            return urls.length > 0 ? (
-              <div style={{ marginTop: 8 }}>
-                <div style={{ fontSize: 11, color: "var(--slate2)", marginBottom: 6 }}>Damage photos ({urls.length})</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-                  {urls.map((url, i) => <img key={i} src={url} alt={`Damage ${i+1}`} style={{ width: "100%", borderRadius: 6, height: 90, objectFit: "cover", cursor: "pointer" }} />)}
-                </div>
-              </div>
-            ) : null;
-          })()}
           {viewing.checkedInBy && (
             <div className="list-row" style={{ borderBottom: "none", padding: "4px 0" }}>
               <span style={{ color: "var(--slate2)" }}>Checked in by</span><span>{viewing.checkedInBy.name}</span>
@@ -3765,118 +3675,339 @@ function BrandingView({ settings, onSaved }) {
   );
 }
 
-// Admin view of active tickets across all garages with garage filter
-function AdminActiveTicketsView({ user }) {
-  const [tickets, setTickets] = useState([]);
+// ── COUPONS VIEW (Admin) ──────────────────────────────────────────────────────
+function CouponsView({ user }) {
+  const [tab, setTab] = useState("books");
   const [garages, setGarages] = useState([]);
-  const [garageFilter, setGarageFilter] = useState("ALL");
-  const [expandedId, setExpandedId] = useState(null);
-  const [zoomedPhoto, setZoomedPhoto] = useState(null);
+  const [books, setBooks] = useState([]);
+  const [packs, setPacks] = useState([]);
+  const [selectedGarage, setSelectedGarage] = useState("");
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
-  const load = useCallback(async () => {
-    const [ticketsRes, garagesRes] = await Promise.all([
-      fetch("/api/tickets?status=PARKED"),
-      fetch("/api/garages"),
-    ]);
-    if (ticketsRes.ok) setTickets(await ticketsRes.json());
-    if (garagesRes.ok) setGarages(await garagesRes.json());
+  // Create book form
+  const [bookName, setBookName] = useState("");
+  const [bookDesc, setBookDesc] = useState("");
+  const [bookPackSize, setBookPackSize] = useState("10");
+  const [bookDiscountType, setBookDiscountType] = useState("FLAT_DOLLAR");
+  const [bookDiscountValue, setBookDiscountValue] = useState("");
+  const [bookSalePrice, setBookSalePrice] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  // Sell form
+  const [sellBookId, setSellBookId] = useState("");
+  const [sellName, setSellName] = useState("");
+  const [sellEmail, setSellEmail] = useState("");
+  const [sellPhone, setSellPhone] = useState("");
+  const [selling, setSelling] = useState(false);
+  const [soldPack, setSoldPack] = useState(null);
+
+  useEffect(() => {
+    fetch("/api/garages").then(r => r.json()).then(d => {
+      if (Array.isArray(d)) { setGarages(d); if (d.length > 0) setSelectedGarage(d[0].id); }
+    });
   }, []);
 
-  useEffect(() => { load(); const id = setInterval(load, 15000); return () => clearInterval(id); }, [load]);
+  useEffect(() => {
+    if (!selectedGarage) return;
+    fetch(`/api/coupons/books?garageId=${selectedGarage}`).then(r => r.json()).then(d => { if (Array.isArray(d)) setBooks(d); });
+    fetch(`/api/coupons/sell?garageId=${selectedGarage}`).then(r => r.json()).then(d => { if (Array.isArray(d)) setPacks(d); });
+  }, [selectedGarage]);
 
-  const filtered = garageFilter === "ALL"
-    ? tickets
-    : tickets.filter(t => t.garageId === garageFilter);
-
-  async function cancelTicket(id) {
-    const res = await fetch(`/api/tickets/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "cancel" }) });
-    if (res.ok) load();
+  async function createBook(e) {
+    e.preventDefault();
+    setError(""); setSuccess(""); setSaving(true);
+    const res = await fetch("/api/coupons/books", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ garageId: selectedGarage, name: bookName, description: bookDesc, packSize: Number(bookPackSize), discountType: bookDiscountType, discountValue: Number(bookDiscountValue), salePrice: Number(bookSalePrice) }),
+    });
+    const data = await res.json();
+    setSaving(false);
+    if (!res.ok) { setError(data.error); return; }
+    setSuccess("Coupon book created!");
+    setBookName(""); setBookDesc(""); setBookDiscountValue(""); setBookSalePrice("");
+    fetch(`/api/coupons/books?garageId=${selectedGarage}`).then(r => r.json()).then(d => { if (Array.isArray(d)) setBooks(d); });
   }
+
+  async function toggleBook(id, active) {
+    await fetch("/api/coupons/books", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, active }) });
+    fetch(`/api/coupons/books?garageId=${selectedGarage}`).then(r => r.json()).then(d => { if (Array.isArray(d)) setBooks(d); });
+  }
+
+  async function sellPack(e) {
+    e.preventDefault();
+    setError(""); setSelling(true);
+    const res = await fetch("/api/coupons/sell", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ couponBookId: sellBookId, customerName: sellName, customerEmail: sellEmail, customerPhone: sellPhone }),
+    });
+    const data = await res.json();
+    setSelling(false);
+    if (!res.ok) { setError(data.error); return; }
+    setSoldPack(data.pack);
+    setSellName(""); setSellEmail(""); setSellPhone(""); setSellBookId("");
+    fetch(`/api/coupons/sell?garageId=${selectedGarage}`).then(r => r.json()).then(d => { if (Array.isArray(d)) setPacks(d); });
+  }
+
+  async function printCouponPack(pack) {
+    const book = pack.couponBook;
+    const discountLabel = {
+      FLAT_DOLLAR: `$${book.discountValue.toFixed(2)} off`,
+      FREE_HOURS: `${book.discountValue} hour${book.discountValue !== 1 ? "s" : ""} free`,
+      FIXED_RATE: `flat rate $${book.discountValue.toFixed(2)}`,
+    }[book.discountType] || book.discountType;
+
+    const coupons = pack.coupons || [];
+    const rows = await Promise.all(coupons.map(async (c, i) => {
+      let qrSrc = "";
+      try {
+        const r = await fetch(`/api/qr?token=${encodeURIComponent(c.qrToken)}`);
+        const d = await r.json();
+        qrSrc = d.dataUrl || "";
+      } catch {}
+      return `
+        <div style="width:80mm;padding:6mm;text-align:center;font-family:'Courier New',monospace;${i < coupons.length - 1 ? "page-break-after:always;" : ""}">
+          <div style="font-size:20px;font-weight:700;">${pack.couponBook?.garage?.name || "Parking"}</div>
+          <div style="font-size:13px;margin:2px 0;">PARKING COUPON</div>
+          <div style="border-top:2px dashed #000;margin:6px 0;"></div>
+          <div style="font-size:13px;font-weight:700;margin-bottom:4px;">${book.name}</div>
+          <div style="font-size:12px;margin-bottom:8px;">${discountLabel}</div>
+          ${qrSrc ? `<img src="${qrSrc}" style="width:150px;height:150px;display:block;margin:0 auto 8px;"/>` : ""}
+          <div style="font-size:11px;font-family:monospace;letter-spacing:0.08em;margin-bottom:6px;">${c.qrToken}</div>
+          <div style="border-top:2px dashed #000;margin:6px 0;"></div>
+          <div style="font-size:11px;">Coupon ${c.sequenceNum} of ${book.packSize}</div>
+          ${pack.customerName ? `<div style="font-size:11px;">Issued to: ${pack.customerName}</div>` : ""}
+          <div style="font-size:11px;">Single use · Valid at this garage only</div>
+        </div>
+      `;
+    }));
+
+    const html = `<!DOCTYPE html><html><head><title>Coupons</title>
+      <style>*{box-sizing:border-box;margin:0;padding:0;}body{background:#fff;}
+      @media print{@page{margin:0;size:80mm auto;}}</style>
+      </head><body>${rows.join("")}</body></html>`;
+    printHtmlViaIframe(html);
+  }
+
+  const discountTypeLabel = { FLAT_DOLLAR: "Flat $ off", FREE_HOURS: "Free hours", FIXED_RATE: "Fixed rate" };
 
   return (
     <>
-      <div className="queue-header">
-        <h1 className="title">Active Tickets</h1>
-        <span className="count-badge">{filtered.length} parked</span>
-      </div>
+      <h1 className="title">Coupons</h1>
 
       {error && <div className="error-box">{error}</div>}
+      {success && <div style={{ color: "var(--green)", fontSize: 13, marginBottom: 12 }}>{success}</div>}
 
-      <div className="field" style={{ marginBottom: 20 }}>
-        <label>Filter by garage</label>
-        <select value={garageFilter} onChange={e => setGarageFilter(e.target.value)}>
-          <option value="ALL">All garages ({tickets.length} total)</option>
-          {garages.map(g => (
-            <option key={g.id} value={g.id}>
-              {g.name} ({tickets.filter(t => t.garageId === g.id).length} parked)
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {filtered.length === 0 ? (
-        <div className="empty-state"><div className="big">No active tickets</div><p>No vehicles currently parked{garageFilter !== "ALL" ? " in this garage" : ""}.</p></div>
-      ) : (
-        filtered.map(t => {
-          const isExpanded = expandedId === t.id;
-          let damageUrls = [];
-          if (t.damagePhotoUrl) { try { damageUrls = JSON.parse(t.damagePhotoUrl); } catch { damageUrls = [t.damagePhotoUrl]; } }
-          return (
-            <div key={t.id} style={{ borderBottom: "1px solid var(--line)", marginBottom: 0 }}>
-              <div className="list-row" style={{ display: "flex", justifyContent: "space-between", borderBottom: "none", cursor: "pointer" }} onClick={() => setExpandedId(isExpanded ? null : t.id)}>
-                <div>
-                  <div style={{ fontWeight: 600 }}>
-                    #{t.ticketNumber}
-                    {t.damageTypes && <span style={{ marginLeft: 8, fontSize: 11, color: "var(--red)", fontWeight: 600 }}>⚠ {t.damageTypes}</span>}
-                  </div>
-                  <div style={{ fontSize: 12, color: "var(--slate2)" }}>
-                    {[t.vehicleColor, t.vehicleMake, t.vehicleModel].filter(Boolean).join(" ") || "No vehicle details"}
-                    {t.licensePlate ? ` · ${t.licensePlate}` : ""}
-                  </div>
-                  <div style={{ fontSize: 11, color: "var(--slate2)" }}>
-                    {t.garage?.name} · Checked in {new Date(t.checkInTime).toLocaleString()}
-                  </div>
-                </div>
-                <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                  <button style={{ background: "none", border: "none", color: "var(--red)", fontSize: 11, cursor: "pointer", textTransform: "uppercase" }}
-                    onClick={e => { e.stopPropagation(); if (window.confirm(`Cancel ticket #${t.ticketNumber}?`)) cancelTicket(t.id); }}>
-                    Cancel
-                  </button>
-                  <span style={{ fontSize: 12, color: "var(--slate2)" }}>{isExpanded ? "▲" : "▼"}</span>
-                </div>
-              </div>
-              {isExpanded && (
-                <div style={{ padding: "12px 0 16px", borderTop: "1px solid var(--line)" }}>
-                  {t.apartmentNumber && <div style={{ fontSize: 13, color: "var(--slate2)", marginBottom: 4 }}>Unit: {t.apartmentNumber}</div>}
-                  {t.parkingLocation && <div style={{ fontSize: 13, color: "var(--slate2)", marginBottom: 4 }}>Location: {t.parkingLocation}</div>}
-                  {t.damageTypes && <div style={{ fontSize: 13, color: "var(--red)", fontWeight: 600, marginBottom: 8 }}>⚠ Pre-existing damage: {t.damageTypes}</div>}
-                  {t.photoUrl && (
-                    <div style={{ marginBottom: 8 }}>
-                      <div style={{ fontSize: 11, color: "var(--slate2)", marginBottom: 4 }}>Vehicle photo</div>
-                      <img src={t.photoUrl} alt="Vehicle" onClick={() => setZoomedPhoto(t.photoUrl)} style={{ width: "100%", borderRadius: 8, maxHeight: 160, objectFit: "cover", cursor: "pointer" }} />
-                    </div>
-                  )}
-                  {damageUrls.length > 0 && (
-                    <div>
-                      <div style={{ fontSize: 11, color: "var(--slate2)", marginBottom: 6 }}>Damage photos ({damageUrls.length})</div>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-                        {damageUrls.map((url, i) => <img key={i} src={url} alt={`Damage ${i+1}`} onClick={() => setZoomedPhoto(url)} style={{ width: "100%", borderRadius: 6, height: 100, objectFit: "cover", cursor: "pointer" }} />)}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          );
-        })
+      {garages.length > 1 && (
+        <div className="field" style={{ marginBottom: 20 }}>
+          <label>Garage</label>
+          <select value={selectedGarage} onChange={e => setSelectedGarage(e.target.value)}>
+            {garages.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+          </select>
+        </div>
       )}
 
-      {zoomedPhoto && (
-        <div onClick={() => setZoomedPhoto(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 24 }}>
-          <img src={zoomedPhoto} alt="Full size" style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: 12 }} onClick={e => e.stopPropagation()} />
-          <button onClick={() => setZoomedPhoto(null)} style={{ position: "fixed", top: 20, right: 20, background: "rgba(255,255,255,0.15)", border: "none", borderRadius: "50%", width: 36, height: 36, color: "white", fontSize: 20, cursor: "pointer", lineHeight: "36px" }}>×</button>
-        </div>
+      <div className="tabs" style={{ marginBottom: 20 }}>
+        <button className={tab === "books" ? "active" : ""} onClick={() => setTab("books")}>Coupon Books</button>
+        <button className={tab === "sell" ? "active" : ""} onClick={() => setTab("sell")}>Sell a Pack</button>
+        <button className={tab === "sales" ? "active" : ""} onClick={() => setTab("sales")}>Sales History</button>
+      </div>
+
+      {/* ── COUPON BOOKS ── */}
+      {tab === "books" && (
+        <>
+          <div className="card" style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--brass-light)", marginBottom: 14 }}>
+              Create Coupon Book
+            </div>
+            <form onSubmit={createBook}>
+              <div className="field">
+                <label>Book name</label>
+                <input value={bookName} onChange={e => setBookName(e.target.value)} placeholder="e.g. Standard 10-Pack" required />
+              </div>
+              <div className="field">
+                <label>Description (optional)</label>
+                <input value={bookDesc} onChange={e => setBookDesc(e.target.value)} placeholder="e.g. Great for monthly residents" />
+              </div>
+              <div style={{ display: "flex", gap: 12 }}>
+                <div className="field" style={{ flex: 1 }}>
+                  <label>Pack size</label>
+                  <select value={bookPackSize} onChange={e => setBookPackSize(e.target.value)}>
+                    {[5, 10, 15, 20].map(n => <option key={n} value={n}>{n} coupons</option>)}
+                  </select>
+                </div>
+                <div className="field" style={{ flex: 1 }}>
+                  <label>Discount type</label>
+                  <select value={bookDiscountType} onChange={e => setBookDiscountType(e.target.value)}>
+                    <option value="FLAT_DOLLAR">Flat $ off (e.g. $5 off)</option>
+                    <option value="FREE_HOURS">Free hours (e.g. 2 hrs free)</option>
+                    <option value="FIXED_RATE">Fixed rate (e.g. pay only $3)</option>
+                  </select>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 12 }}>
+                <div className="field" style={{ flex: 1 }}>
+                  <label>
+                    {bookDiscountType === "FLAT_DOLLAR" ? "$ off per coupon" : bookDiscountType === "FREE_HOURS" ? "Hours free per coupon" : "Fixed rate per coupon ($)"}
+                  </label>
+                  <input type="number" step="0.01" min="0" value={bookDiscountValue} onChange={e => setBookDiscountValue(e.target.value)} placeholder="0.00" required />
+                </div>
+                <div className="field" style={{ flex: 1 }}>
+                  <label>Sale price for full pack ($)</label>
+                  <input type="number" step="0.01" min="0" value={bookSalePrice} onChange={e => setBookSalePrice(e.target.value)} placeholder="0.00" required />
+                </div>
+              </div>
+              <button className="btn btn-primary" type="submit" disabled={saving || !selectedGarage}>
+                {saving ? "Creating..." : "Create coupon book"}
+              </button>
+            </form>
+          </div>
+
+          {books.length === 0 ? (
+            <div className="empty-state"><div className="big">No coupon books yet</div>Create one above to start selling.</div>
+          ) : books.map(b => (
+            <div key={b.id} className="list-row" style={{ display: "block" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div>
+                  <div style={{ fontWeight: 600 }}>{b.name}</div>
+                  <div style={{ fontSize: 12, color: "var(--slate2)" }}>
+                    {b.packSize}-pack · {discountTypeLabel[b.discountType]} · Value: {b.discountValue} · Sale: {money(b.salePrice)}
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--slate2)" }}>{b._count?.packs || 0} packs sold</div>
+                </div>
+                <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 12, background: b.active ? "var(--green)" : "var(--navy-2)", color: b.active ? "var(--navy)" : "var(--slate2)" }}>
+                    {b.active ? "ACTIVE" : "INACTIVE"}
+                  </span>
+                  <button style={{ background: "none", border: "none", color: "var(--brass-light)", fontSize: 11, cursor: "pointer" }}
+                    onClick={() => toggleBook(b.id, !b.active)}>
+                    {b.active ? "Deactivate" : "Activate"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </>
+      )}
+
+      {/* ── SELL A PACK ── */}
+      {tab === "sell" && (
+        <>
+          {soldPack && (
+            <div style={{ background: "rgba(74,120,86,0.1)", border: "1px solid var(--green)", borderRadius: 10, padding: 16, marginBottom: 20 }}>
+              <div style={{ color: "var(--green)", fontWeight: 600, marginBottom: 8 }}>✓ Pack sold successfully!</div>
+              <div style={{ fontSize: 13, color: "var(--slate2)", marginBottom: 12 }}>
+                {soldPack.couponBook?.packSize} coupons generated for {soldPack.customerName || "customer"}.
+                {soldPack.customerEmail && ` Email sent to ${soldPack.customerEmail}.`}
+              </div>
+              <button className="btn btn-ghost" style={{ width: "auto", padding: "8px 16px", fontSize: 13 }}
+                onClick={() => printCouponPack(soldPack)}>
+                🖨️ Print coupon pack
+              </button>
+              <button className="btn btn-ghost" style={{ width: "auto", padding: "8px 16px", fontSize: 13, marginLeft: 8 }}
+                onClick={() => setSoldPack(null)}>
+                Sell another
+              </button>
+            </div>
+          )}
+
+          <div className="card">
+            <div style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--brass-light)", marginBottom: 14 }}>
+              Sell a Coupon Pack
+            </div>
+            <form onSubmit={sellPack}>
+              <div className="field">
+                <label>Select coupon book</label>
+                <select value={sellBookId} onChange={e => setSellBookId(e.target.value)} required>
+                  <option value="">— choose a book —</option>
+                  {books.filter(b => b.active).map(b => (
+                    <option key={b.id} value={b.id}>
+                      {b.name} — {b.packSize} coupons · {money(b.salePrice)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {sellBookId && (
+                <div className="card" style={{ marginBottom: 16, padding: "12px 16px" }}>
+                  {(() => {
+                    const b = books.find(x => x.id === sellBookId);
+                    if (!b) return null;
+                    const label = { FLAT_DOLLAR: `$${b.discountValue.toFixed(2)} off per parking`, FREE_HOURS: `${b.discountValue} hour${b.discountValue !== 1 ? "s" : ""} free per parking`, FIXED_RATE: `flat $${b.discountValue.toFixed(2)} per parking` }[b.discountType];
+                    return (
+                      <>
+                        <div style={{ fontSize: 13, fontWeight: 600 }}>{b.packSize} coupons · {label}</div>
+                        <div style={{ fontSize: 22, fontFamily: "Oswald, sans-serif", color: "var(--brass-light)", marginTop: 4 }}>{money(b.salePrice)}</div>
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
+              <div className="field">
+                <label>Customer name</label>
+                <input value={sellName} onChange={e => setSellName(e.target.value)} placeholder="e.g. John Smith" />
+              </div>
+              <div className="field">
+                <label>Customer email (optional — sends QR codes)</label>
+                <input type="email" value={sellEmail} onChange={e => setSellEmail(e.target.value)} placeholder="john@example.com" />
+              </div>
+              <div className="field">
+                <label>Customer phone (optional)</label>
+                <input type="tel" value={sellPhone} onChange={e => setSellPhone(e.target.value)} placeholder="312-555-0100" />
+              </div>
+              <div style={{ fontSize: 12, color: "var(--slate2)", marginBottom: 14 }}>
+                Payment should be collected via Square Terminal separately before generating the pack.
+              </div>
+              <button className="btn btn-primary" type="submit" disabled={selling || !sellBookId}>
+                {selling ? "Generating..." : "Generate coupon pack"}
+              </button>
+            </form>
+          </div>
+        </>
+      )}
+
+      {/* ── SALES HISTORY ── */}
+      {tab === "sales" && (
+        <>
+          <div style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--brass-light)", marginBottom: 14 }}>
+            {packs.length} packs sold
+          </div>
+          {packs.length === 0 ? (
+            <div className="empty-state"><div className="big">No sales yet</div></div>
+          ) : packs.map(p => {
+            const used = p.coupons?.filter(c => c.status === "USED").length || 0;
+            const total = p.coupons?.length || 0;
+            return (
+              <div key={p.id} className="list-row" style={{ display: "block" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div>
+                    <div style={{ fontWeight: 600 }}>{p.customerName || "Anonymous"}</div>
+                    <div style={{ fontSize: 12, color: "var(--slate2)" }}>
+                      {p.couponBook?.name} · {money(p.amountPaid)} · Sold by {p.soldBy?.name}
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--slate2)" }}>
+                      {new Date(p.soldAt).toLocaleDateString()} · {used}/{total} coupons used
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 12, background: p.status === "ACTIVE" ? "var(--green)" : p.status === "EXHAUSTED" ? "var(--navy-2)" : "var(--red)", color: p.status === "ACTIVE" ? "var(--navy)" : "var(--cream)" }}>
+                      {p.status}
+                    </span>
+                    <button style={{ background: "none", border: "none", color: "var(--brass-light)", fontSize: 11, cursor: "pointer" }}
+                      onClick={() => printCouponPack(p)}>
+                      Print
+                    </button>
+                  </div>
+                </div>
+                {/* Progress bar */}
+                <div style={{ marginTop: 8, height: 4, background: "var(--line)", borderRadius: 2, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${total > 0 ? (used / total) * 100 : 0}%`, background: "var(--brass)", borderRadius: 2 }} />
+                </div>
+              </div>
+            );
+          })}
+        </>
       )}
     </>
   );
